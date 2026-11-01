@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="akso_green">#0BB34B</color>
+    <color name="akso_dark_green">#078B39</color>
+    <color name="page_bg">#F4F7F5</color>
+    <color name="text_primary">#17231C</color>
+    <color name="text_secondary">#718078</color>
+    <color name="white">#FFFFFF</color>
+</resources>
