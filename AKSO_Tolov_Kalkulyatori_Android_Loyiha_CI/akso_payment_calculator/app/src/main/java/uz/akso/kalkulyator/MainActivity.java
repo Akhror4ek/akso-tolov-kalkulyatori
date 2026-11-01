@@ -71,7 +71,16 @@ public class MainActivity extends Activity {
     private View buildScreen() {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(PAGE);
+        GradientDrawable pageBackground =
+    new GradientDrawable(
+        GradientDrawable.Orientation.TL_BR,
+        new int[]{
+            Color.rgb(242, 250, 246),
+            Color.rgb(224, 240, 233)
+        }
+    );
+
+scroll.setBackground(pageBackground);
         scroll.setVerticalScrollBarEnabled(false);
 
         LinearLayout page = new LinearLayout(this);
@@ -233,62 +242,88 @@ public class MainActivity extends Activity {
     }
 
     private View buildPlanCard(int index) {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(9), dp(8), dp(9), dp(7));
-        card.setBackground(rounded(Color.WHITE, dp(12), BORDER, 1));
+    LinearLayout card = new LinearLayout(this);
+    card.setOrientation(LinearLayout.VERTICAL);
+    card.setPadding(dp(10), dp(9), dp(10), dp(8));
 
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setGravity(Gravity.CENTER_VERTICAL);
-        card.addView(top, matchWrap());
-        TextView term = text(terms[index] + " OY", 13, TEXT, true);
-        top.addView(term, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        TextView rate = text(rates[index] == 0 ? "0%" : "+" + rates[index] + "%", 9, DARK_GREEN, true);
-        rate.setGravity(Gravity.CENTER);
-        rate.setPadding(dp(6), dp(4), dp(6), dp(4));
-        rate.setBackground(rounded(Color.rgb(235, 249, 240), dp(20), Color.rgb(235, 249, 240), 0));
-        top.addView(rate, wrapWrap());
+    card.setBackground(rounded(
+        Color.argb(225, 255, 255, 255),
+        dp(16),
+        Color.WHITE,
+        1
+    ));
+    card.setElevation(dp(4));
 
-        TextView monthlyCaption = text("OYLIK TO‘LOV", 8, MUTED, true);
-        monthlyCaption.setLetterSpacing(0.04f);
-        monthlyCaption.setPadding(0, dp(5), 0, 0);
-        card.addView(monthlyCaption, matchWrap());
-        monthlyValues[index] = text("—", 17, DARK_GREEN, true);
-        monthlyValues[index].setSingleLine(true);
-        monthlyValues[index].setTextSize(17);
-        card.addView(monthlyValues[index], matchWrap());
+    LinearLayout top = new LinearLayout(this);
+    top.setOrientation(LinearLayout.HORIZONTAL);
+    top.setGravity(Gravity.CENTER_VERTICAL);
+    card.addView(top, matchWrap());
 
-        View divider = new View(this);
-        divider.setBackgroundColor(BORDER);
-        LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
-        dividerParams.topMargin = dp(4);
-        dividerParams.bottomMargin = dp(4);
-        card.addView(divider, dividerParams);
+    TextView term = text(
+        terms[index] + " OY", 13, TEXT, true
+    );
+    top.addView(term, matchWrap());
 
-        LinearLayout totalRow = new LinearLayout(this);
-        totalRow.setOrientation(LinearLayout.HORIZONTAL);
-        totalRow.setGravity(Gravity.CENTER_VERTICAL);
-        card.addView(totalRow, matchWrap());
-        totalRow.addView(text("Muddatli jami", 8, MUTED, false),
-                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        totalValues[index] = text("—", 9, TEXT, true);
-        totalValues[index].setSingleLine(true);
-        totalRow.addView(totalValues[index], wrapWrap());
+    TextView monthlyCaption =
+        text("OYLIK TO‘LOV", 8, MUTED, true);
 
-        LinearLayout grandRow = new LinearLayout(this);
-        grandRow.setOrientation(LinearLayout.HORIZONTAL);
-        grandRow.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams grandParams = matchWrap();
-        grandParams.topMargin = dp(3);
-        card.addView(grandRow, grandParams);
-        grandRow.addView(text("Oldindan bilan", 8, MUTED, false),
-                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        grandValues[index] = text("—", 9, TEXT, true);
-        grandValues[index].setSingleLine(true);
-        grandRow.addView(grandValues[index], wrapWrap());
-        return card;
+    monthlyCaption.setPadding(0, dp(5), 0, 0);
+    card.addView(monthlyCaption, matchWrap());
+
+    monthlyValues[index] =
+        text("—", 17, DARK_GREEN, true);
+
+    monthlyValues[index].setSingleLine(true);
+    card.addView(monthlyValues[index], matchWrap());
+
+    View divider = new View(this);
+    divider.setBackgroundColor(BORDER);
+
+    LinearLayout.LayoutParams dividerParams =
+        new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(1)
+        );
+
+    dividerParams.topMargin = dp(5);
+    dividerParams.bottomMargin = dp(5);
+    card.addView(divider, dividerParams);
+
+    LinearLayout totalRow = new LinearLayout(this);
+    totalRow.setOrientation(LinearLayout.HORIZONTAL);
+    totalRow.setGravity(Gravity.CENTER_VERTICAL);
+    card.addView(totalRow, matchWrap());
+
+    totalRow.addView(
+        text("Muddatli jami", 8, MUTED, false),
+        new LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
+        )
+    );
+
+    totalValues[index] = text("—", 9, TEXT, true);
+    totalValues[index].setSingleLine(true);
+    totalRow.addView(totalValues[index], wrapWrap());
+
+    LinearLayout grandRow = new LinearLayout(this);
+    grandRow.setOrientation(LinearLayout.HORIZONTAL);
+    grandRow.setGravity(Gravity.CENTER_VERTICAL);
+
+    LinearLayout.LayoutParams grandParams = matchWrap();
+    grandParams.topMargin = dp(4);
+    card.addView(grandRow, grandParams);
+
+    grandRow.addView(
+        text("Oldindan bilan", 8, MUTED, false),
+        new LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
+        )
+    );
+
+    grandValues[index] = text("—", 9, TEXT, true);
+    grandValues[index].setSingleLine(true);
+    grandRow.addView(grandValues[index], wrapWrap());
+
+    return card;
     }
 
     private void recalculate() {
