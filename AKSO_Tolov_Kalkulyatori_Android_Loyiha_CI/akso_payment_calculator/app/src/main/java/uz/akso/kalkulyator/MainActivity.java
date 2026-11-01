@@ -76,9 +76,14 @@ public class MainActivity extends Activity {
 
         LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(dp(13), dp(9), dp(13), dp(9));
+        page.setPadding(dp(13), 0, dp(13), dp(9));
         scroll.addView(page, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        scroll.setOnApplyWindowInsetsListener((view, insets) -> {
+    int topInset = insets.getSystemWindowInsetTop();
+    page.setPadding(dp(13), topInset, dp(13), dp(9));
+    return insets;
+});
 
         page.addView(buildHeader(), matchWrap());
         addSpace(page, 9);
