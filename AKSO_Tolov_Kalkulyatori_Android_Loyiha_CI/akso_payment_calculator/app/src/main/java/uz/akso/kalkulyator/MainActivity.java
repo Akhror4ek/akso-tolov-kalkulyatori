@@ -378,19 +378,90 @@ public class MainActivity extends Activity {
         return format.format(amount.setScale(0, RoundingMode.HALF_UP)).replace(',', ' ');
     }
 
-    private EditText amountInput(String hint) {
-        EditText input = new EditText(this);
-        input.setSingleLine(true);
-        input.setTextSize(15);
-        input.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        input.setTextColor(TEXT);
-        input.setHintTextColor(Color.rgb(164, 175, 168));
-        input.setHint(hint);
-        input.setInputType(InputType.TYPE_CLASS_NUMBER);
-        input.setPadding(dp(9), 0, dp(9), 0);
-        input.setBackground(rounded(Color.rgb(249, 251, 250), dp(9), BORDER, 1));
-        return input;
-    }
+  private EditText amountInput(String hint) {
+    EditText input = new EditText(this);
+
+    input.setSingleLine(true);
+    input.setTextSize(17);
+    input.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+    input.setTextColor(DARK_GREEN);
+    input.setHintTextColor(Color.rgb(164, 175, 168));
+    input.setHint(hint);
+    input.setInputType(InputType.TYPE_CLASS_NUMBER);
+    input.setPadding(dp(9), 0, dp(9), 0);
+    input.setBackground(
+        rounded(Color.rgb(249, 251, 250), dp(9), BORDER, 1)
+    );
+
+    input.addTextChangedListener(new TextWatcher() {
+        private boolean formatting = false;
+
+        @Override
+        public void beforeTextChanged(
+            CharSequence s, int start, int count, int after
+        ) {}
+
+        @Override
+        public void onTextChanged(
+            CharSequence s, int start, int before, int count
+        ) {
+            if (formatting) return;
+
+            String digits = s.toString()
+                .replaceAll("[^0-9]", "");
+
+            if (digits.isEmpty()) return;
+
+            String formatted =
+                formatMoney(new BigDecimal(digits));
+
+            if (formatted.equals(s.toString())) return;
+
+            int cursor = input.getSelectionStart();
+            if (cursor < 0) cursor = s.length();
+
+            int digitsBeforeCursor = 0;
+
+            for (int i = 0;
+                 i < Math.min(cursor, s.length()); i++) {
+                if (Character.isDigit(s.charAt(i))) {
+                    digitsBeforeCursor++;
+                }
+            }
+
+            formatting = true;
+
+            input.setText(formatted);
+
+            int newCursor = 0;
+            int digitsSeen = 0;
+
+            while (newCursor < formatted.length()
+                    && digitsSeen < digitsBeforeCursor) {
+
+                if (Character.isDigit(
+                    formatted.charAt(newCursor)
+                )) {
+                    digitsSeen++;
+                }
+
+                newCursor++;
+            }
+
+            input.setSelection(
+                Math.min(newCursor, formatted.length())
+            );
+
+            formatting = false;
+        }
+
+        @Override
+        public void afterTextChanged(Editable s) {}
+    });
+
+    return input;
+}  
+
 
     private TextView fieldLabel(String value) {
         TextView label = text(value, 10, TEXT, true);
