@@ -243,6 +243,8 @@ scroll.setBackground(pageBackground);
 
     private View buildPlanCard(int index) {
     LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+card.setPadding(dp(10), dp(9), dp(10), dp(8));
     card.setBackground(rounded(
     Color.argb(178, 255, 255, 255),
     dp(18),
