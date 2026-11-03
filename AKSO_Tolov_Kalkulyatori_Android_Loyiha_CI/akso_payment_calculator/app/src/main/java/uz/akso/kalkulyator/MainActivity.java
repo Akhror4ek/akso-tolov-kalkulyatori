@@ -26,6 +26,7 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -453,17 +454,34 @@ public class MainActivity extends Activity {
         displayParams.bottomMargin = dp(10);
         panel.addView(displayPanel, displayParams);
 
+        // Google Calculator-style expression history: a small, horizontally
+        // scrollable line above the large live result.
+        HorizontalScrollView expressionScroll = new HorizontalScrollView(this);
+        expressionScroll.setHorizontalScrollBarEnabled(false);
+        expressionScroll.setFillViewport(true);
+        expressionScroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+
         TextView expression = text("Hisoblashni boshlang", 10, MUTED, false);
         expression.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        displayPanel.addView(expression, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(20)));
+        expression.setSingleLine(true);
+        expression.setHorizontallyScrolling(true);
+        expression.setTextDirection(View.TEXT_DIRECTION_LTR);
+        int screenWidthDp = (int) (getResources().getDisplayMetrics().widthPixels
+                / getResources().getDisplayMetrics().density);
+        int expressionWidth = dp(Math.max(200, Math.min(340, screenWidthDp - 58)));
+        expression.setMinWidth(expressionWidth);
+        expressionScroll.addView(expression, new HorizontalScrollView.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        displayPanel.addView(expressionScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(24)));
+
         TextView resultDisplay = text("0", 27, DARK_GREEN, true);
         resultDisplay.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         resultDisplay.setSingleLine(true);
         displayPanel.addView(resultDisplay, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
 
-        MiniCalculator calculator = new MiniCalculator(expression, resultDisplay);
+        MiniCalculator calculator = new MiniCalculator(expression, resultDisplay, expressionScroll);
         String[][] keys = {
                 {"AC", "⌫", "%", "÷"},
                 {"7", "8", "9", "×"},
@@ -580,15 +598,21 @@ public class MainActivity extends Activity {
     private class MiniCalculator {
         private final TextView expressionView;
         private final TextView resultView;
+        private final HorizontalScrollView expressionScroll;
+        private final StringBuilder expressionHistory = new StringBuilder();
+
         private String entry = "0";
         private BigDecimal accumulator;
         private String pendingOperator;
         private boolean startNewEntry = true;
+        private boolean justEvaluated = false;
         private boolean error;
 
-        MiniCalculator(TextView expressionView, TextView resultView) {
+        MiniCalculator(TextView expressionView, TextView resultView,
+                       HorizontalScrollView expressionScroll) {
             this.expressionView = expressionView;
             this.resultView = resultView;
+            this.expressionScroll = expressionScroll;
             refresh();
         }
 
@@ -631,11 +655,17 @@ public class MainActivity extends Activity {
         }
 
         private boolean isMathOperator(String key) {
-            return key.equals("+") || key.equals("−") || key.equals("×") || key.equals("÷");
+            return key.equals("+") || key.equals("−")
+                    || key.equals("×") || key.equals("÷");
         }
 
         private void digit(String digit) {
             if (startNewEntry) {
+                if (justEvaluated && pendingOperator == null) {
+                    expressionHistory.setLength(0);
+                    accumulator = null;
+                    justEvaluated = false;
+                }
                 entry = digit;
                 startNewEntry = false;
             } else if (entry.length() < 20) {
@@ -647,6 +677,11 @@ public class MainActivity extends Activity {
 
         private void decimalPoint() {
             if (startNewEntry) {
+                if (justEvaluated && pendingOperator == null) {
+                    expressionHistory.setLength(0);
+                    accumulator = null;
+                    justEvaluated = false;
+                }
                 entry = "0.";
                 startNewEntry = false;
             } else if (!entry.contains(".")) {
@@ -655,6 +690,13 @@ public class MainActivity extends Activity {
         }
 
         private void backspace() {
+            if (justEvaluated && pendingOperator == null) {
+                expressionHistory.setLength(0);
+                justEvaluated = false;
+                entry = "0";
+                startNewEntry = false;
+                return;
+            }
             if (startNewEntry) {
                 entry = "0";
                 startNewEntry = false;
@@ -668,6 +710,10 @@ public class MainActivity extends Activity {
         }
 
         private void toggleSign() {
+            if (justEvaluated && pendingOperator == null) {
+                expressionHistory.setLength(0);
+                justEvaluated = false;
+            }
             if (entry.startsWith("-")) entry = entry.substring(1);
             else if (!entry.equals("0")) entry = "-" + entry;
             startNewEntry = false;
@@ -677,7 +723,8 @@ public class MainActivity extends Activity {
             BigDecimal value = number();
             if (accumulator != null && pendingOperator != null
                     && (pendingOperator.equals("+") || pendingOperator.equals("−"))) {
-                value = accumulator.multiply(value).divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP);
+                value = accumulator.multiply(value)
+                        .divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP);
             } else {
                 value = value.divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP);
             }
@@ -687,29 +734,57 @@ public class MainActivity extends Activity {
 
         private void operator(String operator) {
             BigDecimal current = number();
-            if (accumulator != null && pendingOperator != null && !startNewEntry) {
-                accumulator = calculate(accumulator, pendingOperator, current);
-                entry = accumulator.stripTrailingZeros().toPlainString();
-            } else if (accumulator == null) {
+
+            if (accumulator != null && pendingOperator != null) {
+                if (!startNewEntry) {
+                    // Commit the current operand to the visible expression history.
+                    expressionHistory.append(formatCalculatorNumber(current))
+                            .append(" ").append(operator).append(" ");
+                    accumulator = calculate(accumulator, pendingOperator, current);
+                    entry = accumulator.stripTrailingZeros().toPlainString();
+                } else {
+                    // If an operator is tapped twice, replace the pending operator.
+                    replaceTrailingOperator(operator);
+                }
+            } else {
+                // Start a new expression, using the previous answer if one exists.
+                if (justEvaluated) expressionHistory.setLength(0);
                 accumulator = current;
+                expressionHistory.setLength(0);
+                expressionHistory.append(formatCalculatorNumber(current))
+                        .append(" ").append(operator).append(" ");
             }
+
             pendingOperator = operator;
+            justEvaluated = false;
             startNewEntry = true;
-            expressionView.setText(formatCalculatorNumber(accumulator) + " " + operator);
+        }
+
+        private void replaceTrailingOperator(String operator) {
+            int end = expressionHistory.length();
+            while (end > 0 && Character.isWhitespace(expressionHistory.charAt(end - 1))) {
+                end--;
+            }
+            int start = end;
+            while (start > 0 && !Character.isWhitespace(expressionHistory.charAt(start - 1))) {
+                start--;
+            }
+            expressionHistory.replace(start, end, operator);
         }
 
         private void equals() {
             if (accumulator == null || pendingOperator == null) return;
+
             BigDecimal right = number();
-            BigDecimal left = accumulator;
-            String op = pendingOperator;
-            BigDecimal answer = calculate(left, op, right);
-            expressionView.setText(formatCalculatorNumber(left) + " " + op + " "
-                    + formatCalculatorNumber(right) + " =");
+            BigDecimal answer = calculate(accumulator, pendingOperator, right);
+
+            expressionHistory.append(formatCalculatorNumber(right)).append(" =");
+
             entry = answer.stripTrailingZeros().toPlainString();
             accumulator = null;
             pendingOperator = null;
             startNewEntry = true;
+            justEvaluated = true;
         }
 
         private BigDecimal calculate(BigDecimal left, String operator, BigDecimal right) {
@@ -734,29 +809,68 @@ public class MainActivity extends Activity {
             return new BigDecimal(safe);
         }
 
+        private String currentExpression() {
+            if (pendingOperator != null) {
+                if (startNewEntry) {
+                    return trimRight(expressionHistory.toString());
+                }
+                return expressionHistory.toString() + formatCalculatorEntry(entry);
+            }
+            if (justEvaluated) return expressionHistory.toString();
+            if (expressionHistory.length() == 0 && startNewEntry && entry.equals("0")) {
+                return "";
+            }
+            return formatCalculatorEntry(entry);
+        }
+
+        private String trimRight(String value) {
+            int end = value.length();
+            while (end > 0 && Character.isWhitespace(value.charAt(end - 1))) end--;
+            return value.substring(0, end);
+        }
+
+        private BigDecimal previewValue() {
+            if (pendingOperator != null && accumulator != null) {
+                if (startNewEntry) return accumulator;
+                return calculate(accumulator, pendingOperator, number());
+            }
+            return number();
+        }
+
         private void clear() {
             entry = "0";
             accumulator = null;
             pendingOperator = null;
+            expressionHistory.setLength(0);
             startNewEntry = true;
+            justEvaluated = false;
             error = false;
-            expressionView.setText("Hisoblashni boshlang");
         }
 
         private void refresh() {
             if (error) {
                 resultView.setText("Xatolik");
-            } else {
-                resultView.setText(formatCalculatorEntry(entry));
+                return;
+            }
+
+            String visibleExpression = currentExpression();
+            expressionView.setText(
+                    visibleExpression.isEmpty() ? "Hisoblashni boshlang" : visibleExpression);
+
+            expressionScroll.post(() -> expressionScroll.fullScroll(View.FOCUS_RIGHT));
+
+            try {
+                resultView.setText(formatCalculatorNumber(previewValue()));
+            } catch (ArithmeticException exception) {
+                resultView.setText("Xatolik");
             }
         }
 
         BigDecimal getValue() {
             if (error) return null;
             try {
-                if (accumulator != null && pendingOperator != null) return number();
-                return number();
-            } catch (NumberFormatException exception) {
+                return previewValue();
+            } catch (ArithmeticException exception) {
                 return null;
             }
         }
