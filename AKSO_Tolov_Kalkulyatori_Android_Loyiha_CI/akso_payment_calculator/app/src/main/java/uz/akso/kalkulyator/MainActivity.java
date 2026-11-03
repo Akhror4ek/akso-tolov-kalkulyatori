@@ -1488,7 +1488,19 @@ public class MainActivity extends Activity {
 
         // Final safety pass if the user moves away before the queued live pass runs.
         input.setOnFocusChangeListener((view, hasFocus) -> {
-            if (!hasFocus) normalizeAmountInput(input);
+            if (!hasFocus) {
+                // The keyboard has released this field; it is now safe to finish
+                // any deferred grouping that was postponed for an IME composing span.
+                Editable editable = input.getText();
+                if (editable != null) {
+                    try {
+                        BaseInputConnection.removeComposingSpans(editable);
+                    } catch (RuntimeException ignored) {
+                        // Normalization below still runs if an IME span is already gone.
+                    }
+                }
+                normalizeAmountInput(input);
+            }
         });
         return input;
     }
@@ -1506,11 +1518,13 @@ public class MainActivity extends Activity {
             // loss will schedule/perform the formatting instead.
             if (BaseInputConnection.getComposingSpanStart(editable) >= 0
                     || BaseInputConnection.getComposingSpanEnd(editable) >= 0) {
-                if (attempt < 6) postLiveAmountFormatting(input, queued, attempt + 1);
+                // Give Gboard up to 3.6 seconds to finish its active edit composition.
+                // Each keystroke restarts this queue, so grouping follows the latest text.
+                if (attempt < 80) postLiveAmountFormatting(input, queued, attempt + 1);
                 return;
             }
             formatAmountInputInPlace(input);
-        }, 35L);
+        }, 45L);
     }
 
     /**
@@ -1600,6 +1614,8 @@ public class MainActivity extends Activity {
 
                 // IMPORTANT: use the actual Editable length AFTER replacement.
                 // InputFilters/IME spans can make it shorter than the StringBuilder.
+                // Read the actual Editable length only AFTER replace: Android filters
+                // may shorten the requested replacement, so formatted.length() is unsafe.
                 int actualLength = editable.length();
                 int safeStart = Math.max(0, Math.min(newStart, actualLength));
                 int safeEnd = Math.max(0, Math.min(newEnd, actualLength));
@@ -1609,18 +1625,20 @@ public class MainActivity extends Activity {
                     safeEnd = swap;
                 }
 
-                // Drop stale selection spans, then restore only in-range positions.
-                // If an IME still changes the Editable unexpectedly, never crash the app.
+                // Drop stale selection spans, then restore only offsets valid for the
+                // final Editable. If an IME races this operation, retain the text edit.
                 try {
                     Selection.removeSelection(editable);
-                    if (input.hasFocus()) {
-                        Selection.setSelection(editable, safeStart, safeEnd);
+                    if (input.hasFocus() && editable.length() == actualLength) {
+                        Selection.setSelection(editable,
+                                Math.min(safeStart, editable.length()),
+                                Math.min(safeEnd, editable.length()));
                     }
                 } catch (IndexOutOfBoundsException selectionError) {
                     try {
                         Selection.removeSelection(editable);
                     } catch (RuntimeException ignored) {
-                        // Keep the edit even if the keyboard has invalidated selection spans.
+                        // The amount text remains valid even if the IME rejects the caret.
                     }
                 }
             } finally {
