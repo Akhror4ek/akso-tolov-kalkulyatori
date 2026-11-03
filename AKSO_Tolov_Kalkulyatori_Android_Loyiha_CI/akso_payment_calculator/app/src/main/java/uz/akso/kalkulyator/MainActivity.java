@@ -4,7 +4,13 @@ import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.RadialGradient;
+import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
@@ -18,6 +24,7 @@ import android.view.Window;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -29,14 +36,14 @@ import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.util.Locale;
 
-/** Compact one-screen AKSO installment calculator. */
+/** AKSO installment calculator with a custom frosted-glass visual system. */
 public class MainActivity extends Activity {
     private static final int GREEN = Color.rgb(11, 179, 75);
     private static final int DARK_GREEN = Color.rgb(7, 139, 57);
-    private static final int TEXT = Color.rgb(23, 35, 28);
-    private static final int MUTED = Color.rgb(113, 128, 120);
-    private static final int PAGE = Color.rgb(244, 247, 245);
-    private static final int BORDER = Color.rgb(229, 236, 231);
+    private static final int TEXT = Color.rgb(24, 43, 35);
+    private static final int MUTED = Color.rgb(105, 127, 116);
+    private static final int PAGE = Color.rgb(232, 245, 238);
+    private static final int BORDER = Color.rgb(222, 237, 228);
 
     private EditText productInput;
     private EditText upfrontInput;
@@ -59,9 +66,10 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         Window window = getWindow();
-        window.setStatusBarColor(DARK_GREEN);
-        window.setNavigationBarColor(PAGE);
-        window.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        window.setStatusBarColor(Color.rgb(232, 245, 238));
+        window.setNavigationBarColor(Color.rgb(232, 245, 238));
+        window.getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         setContentView(buildScreen());
         productInput.setText("1000000");
         upfrontInput.setText("0");
@@ -69,66 +77,64 @@ public class MainActivity extends Activity {
     }
 
     private View buildScreen() {
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(PAGE);
+
+        GlassBackdropView backdrop = new GlassBackdropView(this);
+        root.addView(backdrop, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        GradientDrawable pageBackground =
-    new GradientDrawable(
-        GradientDrawable.Orientation.TL_BR,
-        new int[]{
-            Color.rgb(242, 250, 246),
-            Color.rgb(224, 240, 233)
-        }
-    );
-
-scroll.setBackground(pageBackground);
+        scroll.setBackgroundColor(Color.TRANSPARENT);
         scroll.setVerticalScrollBarEnabled(false);
 
         LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(dp(13), 0, dp(13), dp(9));
+        page.setPadding(dp(13), 0, dp(13), dp(10));
         scroll.addView(page, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
         scroll.setOnApplyWindowInsetsListener((view, insets) -> {
-    int topInset = insets.getSystemWindowInsetTop();
-    page.setPadding(dp(13), topInset, dp(13), dp(9));
-    return insets;
-});
+            int topInset = insets.getSystemWindowInsetTop();
+            page.setPadding(dp(13), topInset, dp(13), dp(10));
+            return insets;
+        });
 
         page.addView(buildHeader(), matchWrap());
-        addSpace(page, 9);
+        addSpace(page, 10);
         page.addView(buildInputCard(), matchWrap());
-        addSpace(page, 9);
+        addSpace(page, 10);
 
         LinearLayout sectionHeading = new LinearLayout(this);
         sectionHeading.setOrientation(LinearLayout.HORIZONTAL);
         sectionHeading.setGravity(Gravity.CENTER_VERTICAL);
         TextView plansHeading = text("TO‘LOV MUDDATLARI", 11, MUTED, true);
-        plansHeading.setLetterSpacing(0.07f);
+        plansHeading.setLetterSpacing(0.08f);
         sectionHeading.addView(plansHeading, new LinearLayout.LayoutParams(0, dp(22), 1f));
         TextView smallHint = text("Oylik to‘lov va jami", 9, MUTED, false);
         sectionHeading.addView(smallHint, wrapWrap());
         page.addView(sectionHeading, matchWrap());
-        addSpace(page, 5);
+        addSpace(page, 6);
 
-        // Two-column grid keeps all four installment options visible together.
         for (int row = 0; row < 2; row++) {
             LinearLayout rowLayout = new LinearLayout(this);
             rowLayout.setOrientation(LinearLayout.HORIZONTAL);
             rowLayout.setGravity(Gravity.TOP);
-            rowLayout.addView(buildPlanCard(row * 2), new LinearLayout.LayoutParams(0, dp(139), 1f));
+            rowLayout.addView(buildPlanCard(row * 2), new LinearLayout.LayoutParams(0, dp(140), 1f));
             View gap = new View(this);
-            rowLayout.addView(gap, new LinearLayout.LayoutParams(dp(7), 1));
-            rowLayout.addView(buildPlanCard(row * 2 + 1), new LinearLayout.LayoutParams(0, dp(139), 1f));
+            rowLayout.addView(gap, new LinearLayout.LayoutParams(dp(8), 1));
+            rowLayout.addView(buildPlanCard(row * 2 + 1), new LinearLayout.LayoutParams(0, dp(140), 1f));
             page.addView(rowLayout, matchWrap());
-            if (row == 0) addSpace(page, 7);
+            if (row == 0) addSpace(page, 8);
         }
 
-        addSpace(page, 7);
+        addSpace(page, 9);
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setGravity(Gravity.CENTER_VERTICAL);
         page.addView(actions, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(43)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
 
         copyButton = new Button(this);
         copyButton.setText("NATIJANI NUSXALASH");
@@ -138,9 +144,10 @@ scroll.setBackground(pageBackground);
         copyButton.setAllCaps(false);
         copyButton.setMinHeight(0);
         copyButton.setMinimumHeight(0);
-        copyButton.setPadding(dp(5), 0, dp(5), 0);
-        copyButton.setBackground(rounded(GREEN, dp(10), GREEN, 0));
-        actions.addView(copyButton, new LinearLayout.LayoutParams(0, dp(43), 1f));
+        copyButton.setPadding(dp(6), 0, dp(6), 0);
+        copyButton.setBackground(glassButtonBackground(true));
+        copyButton.setElevation(dp(5));
+        actions.addView(copyButton, new LinearLayout.LayoutParams(0, dp(46), 1f));
         copyButton.setOnClickListener(v -> copyResults());
 
         Button clearButton = new Button(this);
@@ -151,46 +158,47 @@ scroll.setBackground(pageBackground);
         clearButton.setAllCaps(false);
         clearButton.setMinHeight(0);
         clearButton.setMinimumHeight(0);
-        clearButton.setBackground(rounded(Color.WHITE, dp(10), BORDER, 1));
-        LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(dp(94), dp(43));
-        clearParams.setMargins(dp(7), 0, 0, 0);
+        clearButton.setBackground(glassButtonBackground(false));
+        clearButton.setElevation(dp(4));
+        LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(dp(96), dp(46));
+        clearParams.setMargins(dp(8), 0, 0, 0);
         actions.addView(clearButton, clearParams);
         clearButton.setOnClickListener(v -> clearInputs());
 
-        return scroll;
+        FrameLayout.LayoutParams scrollParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        root.addView(scroll, scrollParams);
+        return root;
     }
 
     private View buildHeader() {
-        LinearLayout header = new LinearLayout(this);
+        GlassPanel header = new GlassPanel(this, true, 20);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(14), dp(9), dp(14), dp(9));
-        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{GREEN, DARK_GREEN});
-        bg.setCornerRadius(dp(14));
-        header.setBackground(bg);
+        header.setPadding(dp(16), dp(11), dp(15), dp(11));
 
         LinearLayout titleGroup = new LinearLayout(this);
         titleGroup.setOrientation(LinearLayout.VERTICAL);
-        TextView brand = text("AKSO", 10, Color.WHITE, true);
-        brand.setLetterSpacing(0.13f);
+        TextView brand = text("AKSO  /  FINANCE", 9, Color.rgb(225, 255, 237), true);
+        brand.setLetterSpacing(0.18f);
         titleGroup.addView(brand, matchWrap());
+
         TextView title = text("Bo‘lib to‘lash kalkulyatori", 17, Color.WHITE, true);
-        title.setPadding(0, dp(1), 0, 0);
+        title.setPadding(0, dp(3), 0, 0);
         titleGroup.addView(title, matchWrap());
         header.addView(titleGroup, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        TextView subtitle = text("3 • 6 • 9 • 12 oy", 10, Color.rgb(232, 255, 239), true);
+        TextView subtitle = text("3  ·  6  ·  9  ·  12 oy", 10, Color.WHITE, true);
         subtitle.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        subtitle.setShadowLayer(dp(5), 0, dp(1), 0x55FFFFFF);
         header.addView(subtitle, wrapWrap());
         return header;
     }
 
     private View buildInputCard() {
-        LinearLayout card = new LinearLayout(this);
+        GlassPanel card = new GlassPanel(this, false, 19);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(11), dp(9), dp(11), dp(9));
-        card.setBackground(rounded(Color.WHITE, dp(13), BORDER, 1));
+        card.setPadding(dp(12), dp(11), dp(12), dp(11));
 
         LinearLayout fields = new LinearLayout(this);
         fields.setOrientation(LinearLayout.HORIZONTAL);
@@ -200,35 +208,38 @@ scroll.setBackground(pageBackground);
         productColumn.setOrientation(LinearLayout.VERTICAL);
         fields.addView(productColumn, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         productColumn.addView(fieldLabel("Mahsulot summasi"), matchWrap());
-        productInput = amountInput("Masalan: 5 000 000");
+        productInput = amountInput("Mahsulot narxi");
         productColumn.addView(productInput, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(43)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
 
         View fieldGap = new View(this);
-        fields.addView(fieldGap, new LinearLayout.LayoutParams(dp(8), 1));
+        fields.addView(fieldGap, new LinearLayout.LayoutParams(dp(9), 1));
 
         LinearLayout upfrontColumn = new LinearLayout(this);
         upfrontColumn.setOrientation(LinearLayout.VERTICAL);
         fields.addView(upfrontColumn, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         upfrontColumn.addView(fieldLabel("Oldindan to‘lov"), matchWrap());
-        upfrontInput = amountInput("Masalan: 500 000");
+        upfrontInput = amountInput("Boshlang‘ich to‘lov");
         upfrontColumn.addView(upfrontInput, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(43)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
 
-        addSpace(card, 7);
-        LinearLayout remaining = new LinearLayout(this);
+        addSpace(card, 9);
+        GlassPanel remaining = new GlassPanel(this, false, 14);
         remaining.setOrientation(LinearLayout.HORIZONTAL);
         remaining.setGravity(Gravity.CENTER_VERTICAL);
-        remaining.setPadding(dp(10), dp(7), dp(10), dp(7));
-        remaining.setBackground(rounded(Color.rgb(237, 249, 241), dp(10), Color.rgb(220, 242, 227), 1));
-        card.addView(remaining, matchWrap());
-        TextView caption = text("Qolgan summa", 10, MUTED, true);
+        remaining.setPadding(dp(11), dp(8), dp(11), dp(8));
+        remaining.setBackground(glassTintBackground());
+        TextView caption = text("QOLGAN SUMMA", 9, MUTED, true);
+        caption.setLetterSpacing(0.06f);
         remaining.addView(caption, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        remainingValue = text("0 so‘m", 16, DARK_GREEN, true);
+        remainingValue = text("0 so‘m", 17, DARK_GREEN, true);
         remainingValue.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        remainingValue.setShadowLayer(dp(3), 0, dp(1), 0x2290DDB0);
         remaining.addView(remainingValue, wrapWrap());
+        card.addView(remaining, matchWrap());
 
-        validationText = text("", 10, Color.rgb(190, 55, 55), false);
+        validationText = text("", 10, Color.rgb(180, 55, 55), true);
+        validationText.setPadding(dp(2), dp(4), dp(2), 0);
         card.addView(validationText, matchWrap());
 
         TextWatcher watcher = new TextWatcher() {
@@ -242,89 +253,61 @@ scroll.setBackground(pageBackground);
     }
 
     private View buildPlanCard(int index) {
-    LinearLayout card = new LinearLayout(this);
+        GlassPanel card = new GlassPanel(this, false, 18);
         card.setOrientation(LinearLayout.VERTICAL);
-card.setPadding(dp(10), dp(9), dp(10), dp(8));
-    card.setBackground(rounded(
-    Color.argb(178, 255, 255, 255),
-    dp(18),
-    Color.argb(240, 255, 255, 255),
-    1
-));
+        card.setPadding(dp(10), dp(9), dp(10), dp(8));
 
-card.setElevation(dp(7));
-card.setClipToPadding(false);
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        card.addView(top, matchWrap());
 
-    LinearLayout top = new LinearLayout(this);
-    top.setOrientation(LinearLayout.HORIZONTAL);
-    top.setGravity(Gravity.CENTER_VERTICAL);
-    card.addView(top, matchWrap());
+        TextView term = text(terms[index] + " OY", 13, TEXT, true);
+        top.addView(term, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView microLabel = text("AKSO", 8, MUTED, true);
+        microLabel.setLetterSpacing(0.10f);
+        top.addView(microLabel, wrapWrap());
 
-    TextView term = text(
-        terms[index] + " OY", 13, TEXT, true
-    );
-    top.addView(term, matchWrap());
+        TextView monthlyCaption = text("OYLIK TO‘LOV", 8, MUTED, true);
+        monthlyCaption.setLetterSpacing(0.05f);
+        monthlyCaption.setPadding(0, dp(5), 0, 0);
+        card.addView(monthlyCaption, matchWrap());
 
-    TextView monthlyCaption =
-        text("OYLIK TO‘LOV", 8, MUTED, true);
+        monthlyValues[index] = text("—", 17, DARK_GREEN, true);
+        monthlyValues[index].setSingleLine(true);
+        monthlyValues[index].setShadowLayer(dp(3), 0, dp(1), 0x2285D8A6);
+        card.addView(monthlyValues[index], matchWrap());
 
-    monthlyCaption.setPadding(0, dp(5), 0, 0);
-    card.addView(monthlyCaption, matchWrap());
+        View divider = new View(this);
+        divider.setBackgroundColor(0x55FFFFFF);
+        LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
+        dividerParams.topMargin = dp(5);
+        dividerParams.bottomMargin = dp(5);
+        card.addView(divider, dividerParams);
 
-    monthlyValues[index] =
-        text("—", 17, DARK_GREEN, true);
+        LinearLayout totalRow = new LinearLayout(this);
+        totalRow.setOrientation(LinearLayout.HORIZONTAL);
+        totalRow.setGravity(Gravity.CENTER_VERTICAL);
+        card.addView(totalRow, matchWrap());
+        totalRow.addView(text("Muddatli jami", 8, MUTED, false),
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        totalValues[index] = text("—", 9, TEXT, true);
+        totalValues[index].setSingleLine(true);
+        totalRow.addView(totalValues[index], wrapWrap());
 
-    monthlyValues[index].setSingleLine(true);
-    card.addView(monthlyValues[index], matchWrap());
-
-    View divider = new View(this);
-    divider.setBackgroundColor(BORDER);
-
-    LinearLayout.LayoutParams dividerParams =
-        new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(1)
-        );
-
-    dividerParams.topMargin = dp(5);
-    dividerParams.bottomMargin = dp(5);
-    card.addView(divider, dividerParams);
-
-    LinearLayout totalRow = new LinearLayout(this);
-    totalRow.setOrientation(LinearLayout.HORIZONTAL);
-    totalRow.setGravity(Gravity.CENTER_VERTICAL);
-    card.addView(totalRow, matchWrap());
-
-    totalRow.addView(
-        text("Muddatli jami", 8, MUTED, false),
-        new LinearLayout.LayoutParams(
-            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
-        )
-    );
-
-    totalValues[index] = text("—", 9, TEXT, true);
-    totalValues[index].setSingleLine(true);
-    totalRow.addView(totalValues[index], wrapWrap());
-
-    LinearLayout grandRow = new LinearLayout(this);
-    grandRow.setOrientation(LinearLayout.HORIZONTAL);
-    grandRow.setGravity(Gravity.CENTER_VERTICAL);
-
-    LinearLayout.LayoutParams grandParams = matchWrap();
-    grandParams.topMargin = dp(4);
-    card.addView(grandRow, grandParams);
-
-    grandRow.addView(
-        text("Oldindan bilan", 8, MUTED, false),
-        new LinearLayout.LayoutParams(
-            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
-        )
-    );
-
-    grandValues[index] = text("—", 9, TEXT, true);
-    grandValues[index].setSingleLine(true);
-    grandRow.addView(grandValues[index], wrapWrap());
-
-    return card;
+        LinearLayout grandRow = new LinearLayout(this);
+        grandRow.setOrientation(LinearLayout.HORIZONTAL);
+        grandRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams grandParams = matchWrap();
+        grandParams.topMargin = dp(3);
+        card.addView(grandRow, grandParams);
+        grandRow.addView(text("Oldindan bilan", 8, MUTED, false),
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        grandValues[index] = text("—", 9, TEXT, true);
+        grandValues[index].setSingleLine(true);
+        grandRow.addView(grandValues[index], wrapWrap());
+        return card;
     }
 
     private void recalculate() {
@@ -332,6 +315,7 @@ card.setClipToPadding(false);
         BigDecimal upfront = readAmount(upfrontInput);
         lastProduct = product;
         lastUpfront = upfront;
+
         if (upfront.compareTo(product) > 0) {
             lastValid = false;
             lastRemaining = BigDecimal.ZERO;
@@ -349,6 +333,7 @@ card.setClipToPadding(false);
         validationText.setText("");
         copyButton.setEnabled(true);
         copyButton.setAlpha(1f);
+
         for (int i = 0; i < terms.length; i++) {
             BigDecimal financedTotal = lastRemaining
                     .multiply(BigDecimal.valueOf(100L + rates[i]))
@@ -383,7 +368,7 @@ card.setClipToPadding(false);
             BigDecimal total = lastRemaining.multiply(BigDecimal.valueOf(100L + rates[i]))
                     .divide(BigDecimal.valueOf(100), 0, RoundingMode.HALF_UP);
             BigDecimal monthly = total.divide(BigDecimal.valueOf(terms[i]), 0, RoundingMode.HALF_UP);
-            result.append(terms[i]).append(" oy (+").append(rates[i]).append("%): ")
+            result.append(terms[i]).append(" oy: ")
                     .append(formatMoney(monthly)).append(" so‘m/oy; jami ")
                     .append(formatMoney(total)).append(" so‘m\n");
         }
@@ -414,131 +399,40 @@ card.setClipToPadding(false);
         return format.format(amount.setScale(0, RoundingMode.HALF_UP)).replace(',', ' ');
     }
 
-  private EditText amountInput(String hint) {
-    EditText input = new EditText(this);
+    private EditText amountInput(String hint) {
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setTextSize(17);
+        input.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        input.setTextColor(DARK_GREEN);
+        input.setHintTextColor(0xFF9BAFA4);
+        input.setHint(hint);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setPadding(dp(11), 0, dp(11), 0);
+        input.setBackground(amountFieldBackground());
 
-    input.setSingleLine(true);
-    input.setTextSize(17);
-    input.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    input.setTextColor(DARK_GREEN);
-    input.setHintTextColor(Color.rgb(164, 175, 168));
-    input.setHint(hint);
-    input.setInputType(InputType.TYPE_CLASS_NUMBER);
-    input.setPadding(dp(9), 0, dp(9), 0);
-    input.setBackground(
-        rounded(Color.rgb(249, 251, 250), dp(9), BORDER, 1)
-    );
+        input.addTextChangedListener(new TextWatcher() {
+            private boolean formatting = false;
 
-    input.addTextChangedListener(new TextWatcher() {
-        private boolean formatting = false;
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
 
-        @Override
-        public void beforeTextChanged(
-            CharSequence s, int start, int count, int after
-        ) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                if (formatting) return;
+                String digits = s.toString().replaceAll("[^0-9]", "");
+                if (digits.isEmpty()) return;
+                String formatted = formatMoney(new BigDecimal(digits));
+                if (formatted.equals(s.toString())) return;
 
-        @Override
-        public void onTextChanged(
-            CharSequence s, int start, int before, int count
-        ) {
-            if (formatting) return;
-
-            String digits = s.toString()
-                .replaceAll("[^0-9]", "");
-
-            if (digits.isEmpty()) return;
-
-            String formatted =
-                formatMoney(new BigDecimal(digits));
-
-            if (formatted.equals(s.toString())) return;
-
-            int cursor = input.getSelectionStart();
-            if (cursor < 0) cursor = s.length();
-
-            int digitsBeforeCursor = 0;
-
-            for (int i = 0;
-                 i < Math.min(cursor, s.length()); i++) {
-                if (Character.isDigit(s.charAt(i))) {
-                    digitsBeforeCursor++;
-                }
-            }
-
-            formatting = true;
-
-            input.setText(formatted);
-
-            int newCursor = 0;
-            int digitsSeen = 0;
-
-            while (newCursor < formatted.length()
-                    && digitsSeen < digitsBeforeCursor) {
-
-                if (Character.isDigit(
-                    formatted.charAt(newCursor)
-                )) {
-                    digitsSeen++;
+                int cursor = input.getSelectionStart();
+                if (cursor < 0) cursor = s.length();
+                int digitsBeforeCursor = 0;
+                for (int i = 0; i < Math.min(cursor, s.length()); i++) {
+                    if (Character.isDigit(s.charAt(i))) digitsBeforeCursor++;
                 }
 
-                newCursor++;
-            }
-
-            input.setSelection(
-                Math.min(newCursor, formatted.length())
-            );
-
-            formatting = false;
-        }
-
-        @Override
-        public void afterTextChanged(Editable s) {}
-    });
-
-    return input;
-}  
-
-
-    private TextView fieldLabel(String value) {
-        TextView label = text(value, 10, TEXT, true);
-        label.setPadding(0, 0, 0, dp(4));
-        return label;
-    }
-
-    private TextView text(String value, float size, int color, boolean bold) {
-        TextView view = new TextView(this);
-        view.setText(value);
-        view.setTextSize(size);
-        view.setTextColor(color);
-        view.setTypeface(Typeface.DEFAULT, bold ? Typeface.BOLD : Typeface.NORMAL);
-        view.setGravity(Gravity.CENTER_VERTICAL);
-        return view;
-    }
-
-    private GradientDrawable rounded(int color, int radius, int strokeColor, int strokeWidth) {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(color);
-        drawable.setCornerRadius(radius);
-        if (strokeWidth > 0) drawable.setStroke(dp(strokeWidth), strokeColor);
-        return drawable;
-    }
-
-    private void addSpace(LinearLayout parent, int heightDp) {
-        View spacer = new View(this);
-        parent.addView(spacer, new LinearLayout.LayoutParams(1, dp(heightDp)));
-    }
-
-    private LinearLayout.LayoutParams matchWrap() {
-        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
-    }
-
-    private LinearLayout.LayoutParams wrapWrap() {
-        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
-    }
-
-    private int dp(float value) {
-        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
-    }
-}
+                formatting = true;
+                input.setText(formatted);
+                int newCursor = 0;
+                int digitsSeen = 0;
+                while (newCursor < formatted.length() && digitsSeen < digitsBeforeCursor) {
+                    if (Character.i
