@@ -39,6 +39,8 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
 import java.util.Locale;
 
 /** AKSO Liquid Glass calculator with persistent dark mode and tactile controls. */
@@ -72,6 +74,17 @@ public class MainActivity extends Activity {
     };
     private Button miniCalculatorButton;
 
+    // Persistent daily sales ledger (separate from theme and sound preferences).
+    private SharedPreferences dailySalesPreferences;
+    private Calendar salesDisplayedMonth;
+    private Calendar selectedSalesDate;
+    private TextView salesMonthTitle;
+    private TextView salesMonthlyTotal;
+    private TextView salesDaysCount;
+    private TextView salesSelectedSummary;
+    private LinearLayout salesCalendarGrid;
+    private EditText salesEntryInput;
+
     private BigDecimal lastProduct = BigDecimal.ZERO;
     private BigDecimal lastUpfront = BigDecimal.ZERO;
     private BigDecimal lastRemaining = BigDecimal.ZERO;
@@ -84,6 +97,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         preferences = getSharedPreferences("akso_ui_preferences", MODE_PRIVATE);
+        dailySalesPreferences = getSharedPreferences("akso_daily_sales", MODE_PRIVATE);
         darkMode = preferences.getBoolean("dark_mode", false);
         soundEnabled = preferences.getBoolean("sound_enabled", true);
         vibrationEnabled = preferences.getBoolean("vibration_enabled", true);
@@ -185,6 +199,16 @@ public class MainActivity extends Activity {
         actions.addView(clearButton, clearParams);
         attachInteractionFeedback(clearButton);
         clearButton.setOnClickListener(v -> clearInputs());
+
+        addSpace(page, 9);
+        Button salesButton = calculatorButton("KUNLIK SAVDO HISOBOTI", 11, false, true);
+        salesButton.setBackground(glassButtonBackground(false));
+        salesButton.setTextColor(DARK_GREEN);
+        salesButton.setElevation(dp(4));
+        page.addView(salesButton, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+        attachInteractionFeedback(salesButton);
+        salesButton.setOnClickListener(v -> showDailySalesDialog());
 
         addSpace(page, 11);
         page.addView(buildDiscountCard(), matchWrap());
@@ -517,6 +541,310 @@ public class MainActivity extends Activity {
             row.addView(discountValues[i], wrapWrap());
         }
         return card;
+    }
+
+    /** Opens a monthly sales ledger. Daily totals persist after the app is closed. */
+    private void showDailySalesDialog() {
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dialog.setCancelable(true);
+
+        Calendar now = Calendar.getInstance();
+        salesDisplayedMonth = (Calendar) now.clone();
+        salesDisplayedMonth.set(Calendar.DAY_OF_MONTH, 1);
+        selectedSalesDate = (Calendar) now.clone();
+
+        GlassPanel panel = new GlassPanel(this, false, 20);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(12), dp(11), dp(12), dp(12));
+
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = text("AKSO  /  KUNLIK SAVDO", 11, DARK_GREEN, true);
+        title.setLetterSpacing(0.07f);
+        titleRow.addView(title, new LinearLayout.LayoutParams(0, dp(36), 1f));
+        Button close = calculatorButton("✕", 11, false, true);
+        titleRow.addView(close, new LinearLayout.LayoutParams(dp(38), dp(36)));
+        panel.addView(titleRow, matchWrap());
+        close.setOnClickListener(v -> dialog.dismiss());
+
+        LinearLayout monthNav = new LinearLayout(this);
+        monthNav.setOrientation(LinearLayout.HORIZONTAL);
+        monthNav.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams navParams = matchWrap();
+        navParams.topMargin = dp(5);
+        panel.addView(monthNav, navParams);
+        Button previousMonth = calculatorButton("‹", 19, false, true);
+        monthNav.addView(previousMonth, new LinearLayout.LayoutParams(dp(42), dp(38)));
+        salesMonthTitle = text("", 13, TEXT, true);
+        salesMonthTitle.setGravity(Gravity.CENTER);
+        monthNav.addView(salesMonthTitle, new LinearLayout.LayoutParams(0, dp(38), 1f));
+        Button nextMonth = calculatorButton("›", 19, false, true);
+        monthNav.addView(nextMonth, new LinearLayout.LayoutParams(dp(42), dp(38)));
+        previousMonth.setOnClickListener(v -> changeSalesMonth(-1));
+        nextMonth.setOnClickListener(v -> changeSalesMonth(1));
+
+        GlassPanel summary = new GlassPanel(this, false, 14);
+        summary.setOrientation(LinearLayout.HORIZONTAL);
+        summary.setGravity(Gravity.CENTER_VERTICAL);
+        summary.setPadding(dp(11), dp(7), dp(11), dp(7));
+        summary.setBackground(glassTintBackground());
+        LinearLayout.LayoutParams summaryParams = matchWrap();
+        summaryParams.topMargin = dp(7);
+        panel.addView(summary, summaryParams);
+        LinearLayout summaryText = new LinearLayout(this);
+        summaryText.setOrientation(LinearLayout.VERTICAL);
+        summary.addView(summaryText, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        summaryText.addView(text("OYLIK SAVDO JAMI", 8, MUTED, true), matchWrap());
+        salesMonthlyTotal = text("0 so‘m", 16, DARK_GREEN, true);
+        summaryText.addView(salesMonthlyTotal, matchWrap());
+        salesDaysCount = text("Savdo bo‘lgan kunlar: 0", 8, MUTED, false);
+        summary.addView(salesDaysCount, wrapWrap());
+
+        LinearLayout weekdays = new LinearLayout(this);
+        weekdays.setOrientation(LinearLayout.HORIZONTAL);
+        String[] dayNames = {"Du", "Se", "Ch", "Pa", "Ju", "Sh", "Ya"};
+        LinearLayout.LayoutParams weekParams = matchWrap();
+        weekParams.topMargin = dp(8);
+        panel.addView(weekdays, weekParams);
+        for (String dayName : dayNames) {
+            TextView label = text(dayName, 8, MUTED, true);
+            label.setGravity(Gravity.CENTER);
+            weekdays.addView(label, new LinearLayout.LayoutParams(0, dp(21), 1f));
+        }
+
+        salesCalendarGrid = new LinearLayout(this);
+        salesCalendarGrid.setOrientation(LinearLayout.VERTICAL);
+        panel.addView(salesCalendarGrid, matchWrap());
+
+        salesSelectedSummary = text("", 9, DARK_GREEN, true);
+        salesSelectedSummary.setPadding(dp(2), dp(8), dp(2), dp(4));
+        panel.addView(salesSelectedSummary, matchWrap());
+
+        salesEntryInput = amountInput("Savdo summasini kiriting");
+        LinearLayout.LayoutParams entryParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(43));
+        entryParams.topMargin = dp(3);
+        panel.addView(salesEntryInput, entryParams);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams actionsParams = matchWrap();
+        actionsParams.topMargin = dp(7);
+        panel.addView(actions, actionsParams);
+        Button addSale = calculatorButton("SAVDOGA QO‘SHISH", 9, true, false);
+        actions.addView(addSale, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        attachInteractionFeedback(addSale);
+        addSale.setOnClickListener(v -> addDailySale());
+        Button deleteDay = calculatorButton("KUNNI O‘CHIRISH", 9, false, true);
+        LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(0, dp(42), 1f);
+        deleteParams.setMargins(dp(6), 0, 0, 0);
+        actions.addView(deleteDay, deleteParams);
+        attachInteractionFeedback(deleteDay);
+        deleteDay.setOnClickListener(v -> confirmDeleteSelectedDay());
+
+        TextView tip = text("Bir kunda bir nechta savdoni ketma-ket qo‘shishingiz mumkin.",
+                8, MUTED, false);
+        tip.setPadding(dp(2), dp(7), dp(2), 0);
+        panel.addView(tip, matchWrap());
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(panel, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        dialog.setContentView(scroll);
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            WindowManager.LayoutParams attributes = window.getAttributes();
+            attributes.width = getResources().getDisplayMetrics().widthPixels - dp(28);
+            attributes.height = Math.min(
+                    getResources().getDisplayMetrics().heightPixels - dp(100), dp(760));
+            attributes.gravity = Gravity.CENTER;
+            attributes.dimAmount = darkMode ? 0.48f : 0.32f;
+            window.setAttributes(attributes);
+            window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                    | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
+        }
+        refreshSalesCalendar();
+    }
+
+    private void changeSalesMonth(int amount) {
+        int selectedDay = selectedSalesDate.get(Calendar.DAY_OF_MONTH);
+        salesDisplayedMonth.add(Calendar.MONTH, amount);
+        int maxDay = salesDisplayedMonth.getActualMaximum(Calendar.DAY_OF_MONTH);
+        selectedSalesDate.set(salesDisplayedMonth.get(Calendar.YEAR),
+                salesDisplayedMonth.get(Calendar.MONTH), Math.min(selectedDay, maxDay));
+        if (salesEntryInput != null) salesEntryInput.setText("");
+        refreshSalesCalendar();
+    }
+
+    private void selectSalesDay(int day) {
+        selectedSalesDate.set(salesDisplayedMonth.get(Calendar.YEAR),
+                salesDisplayedMonth.get(Calendar.MONTH), day);
+        salesEntryInput.setText("");
+        refreshSalesCalendar();
+    }
+
+    private void refreshSalesCalendar() {
+        if (salesCalendarGrid == null) return;
+        SimpleDateFormat monthFormat = new SimpleDateFormat("LLLL yyyy", new Locale("uz", "UZ"));
+        String monthName = monthFormat.format(salesDisplayedMonth.getTime());
+        salesMonthTitle.setText(monthName.substring(0, 1).toUpperCase(new Locale("uz", "UZ"))
+                + monthName.substring(1));
+        salesCalendarGrid.removeAllViews();
+
+        Calendar first = (Calendar) salesDisplayedMonth.clone();
+        first.set(Calendar.DAY_OF_MONTH, 1);
+        int offset = (first.get(Calendar.DAY_OF_WEEK) + 5) % 7; // Monday-first calendar.
+        int maxDay = first.getActualMaximum(Calendar.DAY_OF_MONTH);
+        for (int week = 0; week < 6; week++) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            LinearLayout.LayoutParams rowParams = matchWrap();
+            if (week > 0) rowParams.topMargin = dp(3);
+            salesCalendarGrid.addView(row, rowParams);
+            for (int column = 0; column < 7; column++) {
+                int day = week * 7 + column - offset + 1;
+                LinearLayout.LayoutParams cellParams =
+                        new LinearLayout.LayoutParams(0, dp(43), 1f);
+                if (column > 0) cellParams.setMargins(dp(2), 0, 0, 0);
+                if (day < 1 || day > maxDay) {
+                    row.addView(new View(this), cellParams);
+                } else {
+                    Calendar date = (Calendar) salesDisplayedMonth.clone();
+                    date.set(Calendar.DAY_OF_MONTH, day);
+                    BigDecimal amount = getDailySales(date);
+                    row.addView(buildSalesDayCell(day, amount,
+                            isSameSalesDate(date, selectedSalesDate)), cellParams);
+                }
+            }
+        }
+
+        BigDecimal monthTotal = BigDecimal.ZERO;
+        int activeDays = 0;
+        for (int day = 1; day <= maxDay; day++) {
+            Calendar date = (Calendar) salesDisplayedMonth.clone();
+            date.set(Calendar.DAY_OF_MONTH, day);
+            BigDecimal value = getDailySales(date);
+            if (value.signum() > 0) {
+                monthTotal = monthTotal.add(value);
+                activeDays++;
+            }
+        }
+        salesMonthlyTotal.setText(formatMoney(monthTotal) + " so‘m");
+        salesDaysCount.setText("Savdo bo‘lgan kunlar: " + activeDays);
+        SimpleDateFormat dateFormat = new SimpleDateFormat("d MMMM yyyy", new Locale("uz", "UZ"));
+        salesSelectedSummary.setText(dateFormat.format(selectedSalesDate.getTime())
+                + "   ·   Kunlik jami: " + formatMoney(getDailySales(selectedSalesDate)) + " so‘m");
+    }
+
+    private View buildSalesDayCell(int day, BigDecimal amount, boolean selected) {
+        LinearLayout cell = new LinearLayout(this);
+        cell.setOrientation(LinearLayout.VERTICAL);
+        cell.setGravity(Gravity.CENTER);
+        cell.setPadding(dp(1), dp(2), dp(1), dp(2));
+        int bg1, bg2, stroke, dayColor, amountColor;
+        if (selected) {
+            bg1 = darkMode ? 0xE52BC27B : 0xF20DB35B;
+            bg2 = darkMode ? 0xD70E8053 : 0xE8078B45;
+            stroke = 0xEEFFFFFF;
+            dayColor = Color.WHITE;
+            amountColor = Color.WHITE;
+        } else if (amount.signum() > 0) {
+            bg1 = darkMode ? 0xC83B7657 : 0xD7DDF5E6;
+            bg2 = darkMode ? 0xA82A5942 : 0xBFEAF5EF;
+            stroke = darkMode ? 0x7769D9A0 : 0xAFFFFFFF;
+            dayColor = TEXT;
+            amountColor = DARK_GREEN;
+        } else {
+            bg1 = darkMode ? 0x55334B3D : 0x77FFFFFF;
+            bg2 = darkMode ? 0x33273B30 : 0x44FFFFFF;
+            stroke = darkMode ? 0x446F927D : 0x66FFFFFF;
+            dayColor = TEXT;
+            amountColor = MUTED;
+        }
+        GradientDrawable background = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR, new int[]{bg1, bg2});
+        background.setCornerRadius(dp(8));
+        background.setStroke(dp(1), stroke);
+        cell.setBackground(background);
+        TextView dayNumber = text(String.valueOf(day), 9, dayColor, true);
+        dayNumber.setGravity(Gravity.CENTER);
+        cell.addView(dayNumber, matchWrap());
+        TextView amountText = text(amount.signum() > 0 ? compactSalesAmount(amount) : "·",
+                7, amountColor, true);
+        amountText.setGravity(Gravity.CENTER);
+        amountText.setSingleLine(true);
+        cell.addView(amountText, matchWrap());
+        cell.setOnClickListener(v -> selectSalesDay(day));
+        return cell;
+    }
+
+    private boolean isSameSalesDate(Calendar first, Calendar second) {
+        return first.get(Calendar.YEAR) == second.get(Calendar.YEAR)
+                && first.get(Calendar.DAY_OF_YEAR) == second.get(Calendar.DAY_OF_YEAR);
+    }
+
+    private String salesDateKey(Calendar date) {
+        return String.format(Locale.US, "sale_%04d_%02d_%02d",
+                date.get(Calendar.YEAR), date.get(Calendar.MONTH) + 1,
+                date.get(Calendar.DAY_OF_MONTH));
+    }
+
+    private BigDecimal getDailySales(Calendar date) {
+        String stored = dailySalesPreferences.getString(salesDateKey(date), "0");
+        try { return new BigDecimal(stored); }
+        catch (NumberFormatException exception) { return BigDecimal.ZERO; }
+    }
+
+    private String compactSalesAmount(BigDecimal amount) {
+        BigDecimal million = BigDecimal.valueOf(1_000_000L);
+        BigDecimal thousand = BigDecimal.valueOf(1_000L);
+        if (amount.compareTo(million) >= 0) {
+            return amount.divide(million, 1, RoundingMode.HALF_UP)
+                    .stripTrailingZeros().toPlainString() + "m";
+        }
+        if (amount.compareTo(thousand) >= 0) {
+            return amount.divide(thousand, 0, RoundingMode.HALF_UP)
+                    .stripTrailingZeros().toPlainString() + "k";
+        }
+        return formatMoney(amount);
+    }
+
+    private void addDailySale() {
+        BigDecimal addition = readAmount(salesEntryInput);
+        if (addition.signum() <= 0) {
+            Toast.makeText(this, "Savdo summasini kiriting.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        BigDecimal newTotal = getDailySales(selectedSalesDate).add(addition);
+        dailySalesPreferences.edit()
+                .putString(salesDateKey(selectedSalesDate), newTotal.toPlainString()).apply();
+        salesEntryInput.setText("");
+        refreshSalesCalendar();
+        Toast.makeText(this, "Savdo summasi saqlandi.", Toast.LENGTH_SHORT).show();
+    }
+
+    private void confirmDeleteSelectedDay() {
+        if (getDailySales(selectedSalesDate).signum() <= 0) {
+            Toast.makeText(this, "Bu kun uchun savdo kiritilmagan.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Kunlik savdoni o‘chirish")
+                .setMessage("Tanlangan kundagi jami savdo summasini o‘chirasizmi?")
+                .setNegativeButton("Bekor qilish", (d, w) -> d.dismiss())
+                .setPositiveButton("O‘chirish", (d, w) -> {
+                    dailySalesPreferences.edit().remove(salesDateKey(selectedSalesDate)).apply();
+                    refreshSalesCalendar();
+                    Toast.makeText(this, "Kunlik savdo o‘chirildi.", Toast.LENGTH_SHORT).show();
+                }).show();
     }
 
     private BigDecimal discountedPrice(BigDecimal originalPrice, int discountRate) {
