@@ -1473,8 +1473,9 @@ public class MainActivity extends Activity {
         input.setPadding(dp(11), 0, dp(11), 0);
         input.setBackground(amountFieldBackground());
 
-        // Live separators are applied on the next UI-loop turn, never inside
-        // the keyboard's active TextWatcher callback. This keeps the IME safe.
+        // Apply grouping shortly after the keyboard commits a key. The formatter
+        // only inserts/removes separator spaces; it never replaces all text and
+        // never manually sets the cursor, avoiding the previous IME span crash.
         final boolean[] formattingQueued = {false};
         input.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
@@ -1482,198 +1483,130 @@ public class MainActivity extends Activity {
 
             @Override public void afterTextChanged(Editable editable) {
                 if (formattingAmount || formattingQueued[0]) return;
-                postLiveAmountFormatting(input, formattingQueued, 0);
+                formattingQueued[0] = true;
+                input.postDelayed(() -> {
+                    formattingQueued[0] = false;
+                    if (!input.isAttachedToWindow() || formattingAmount) return;
+                    Editable current = input.getText();
+                    if (current == null) return;
+                    // Numeric fields do not need word-composition spans. Remove
+                    // stale IME composing markers after the key event has finished.
+                    try {
+                        BaseInputConnection.removeComposingSpans(current);
+                    } catch (RuntimeException ignored) {
+                        // Continue with separator-only formatting.
+                    }
+                    formatAmountInputInPlace(input);
+                }, 24L);
             }
         });
 
-        // Final safety pass if the user moves away before the queued live pass runs.
         input.setOnFocusChangeListener((view, hasFocus) -> {
-            if (!hasFocus) {
-                // The keyboard has released this field; it is now safe to finish
-                // any deferred grouping that was postponed for an IME composing span.
-                Editable editable = input.getText();
-                if (editable != null) {
-                    try {
-                        BaseInputConnection.removeComposingSpans(editable);
-                    } catch (RuntimeException ignored) {
-                        // Normalization below still runs if an IME span is already gone.
-                    }
-                }
-                normalizeAmountInput(input);
-            }
+            if (!hasFocus) normalizeAmountInput(input);
         });
         return input;
     }
 
-    private void postLiveAmountFormatting(EditText input, boolean[] queued, int attempt) {
-        if (queued[0]) return;
-        queued[0] = true;
-        input.postDelayed(() -> {
-            queued[0] = false;
-            if (!input.isAttachedToWindow() || !input.hasFocus() || formattingAmount) return;
-
-            Editable editable = input.getText();
-            if (editable == null) return;
-
-            // Amount fields accept digits only. Gboard may leave a composing span
-            // attached even though this is not word composition. Clear that span
-            // after the key event has finished, then format the same Editable.
-            // This is the reason live grouping was previously being skipped.
-            try {
-                BaseInputConnection.removeComposingSpans(editable);
-            } catch (RuntimeException ignored) {
-                // Continue: the formatter independently guards cursor offsets.
-            }
-            formatAmountInputInPlace(input);
-        }, 45L);
-    }
-
     /**
-     * Adds a space every three digits in the existing Editable. It runs only
-     * after the IME callback has returned and there is no active composing span.
+     * Groups digits as 1 234 567 by changing separator characters only.
+     * Editable's own span machinery moves the cursor naturally when a space
+     * is inserted/deleted before it; this method never calls Selection.setSelection.
      */
     private void formatAmountInputInPlace(EditText input) {
-        if (input == null || !input.isAttachedToWindow() || input.getText() == null
-                || formattingAmount) return;
+        if (input == null || input.getText() == null || formattingAmount) return;
 
         Editable editable = input.getText();
-        // Numeric input does not need composing text. Remove any IME composing
-        // marker before editing, otherwise some keyboards postpone this formatter
-        // forever and the grouping spaces never appear while the field is focused.
-        try {
-            BaseInputConnection.removeComposingSpans(editable);
-        } catch (RuntimeException ignored) {
-            // The actual text update below remains protected by bounds checks.
-        }
-
-        int oldStart = Selection.getSelectionStart(editable);
-        int oldEnd = Selection.getSelectionEnd(editable);
-        if (oldStart < 0) oldStart = input.getSelectionStart();
-        if (oldEnd < 0) oldEnd = oldStart;
-        if (oldStart < 0) oldStart = editable.length();
-        if (oldEnd < 0) oldEnd = oldStart;
-        oldStart = Math.min(oldStart, editable.length());
-        oldEnd = Math.min(oldEnd, editable.length());
-
         StringBuilder digits = new StringBuilder(editable.length());
-        int digitsBeforeStart = 0;
-        int digitsBeforeEnd = 0;
         for (int i = 0; i < editable.length(); i++) {
             char ch = editable.charAt(i);
-            if (ch >= '0' && ch <= '9') {
-                digits.append(ch);
-                if (i < oldStart) digitsBeforeStart++;
-                if (i < oldEnd) digitsBeforeEnd++;
-            }
+            if (ch >= '0' && ch <= '9') digits.append(ch);
         }
 
-        // Do not leave separator-only text when the user deletes every digit.
-        if (digits.length() == 0) {
-            if (editable.length() > 0) {
-                formattingAmount = true;
-                try {
-                    editable.clear();
-                    if (input.hasFocus() && editable.length() == 0) {
-                        try {
-                            Selection.removeSelection(editable);
-                            Selection.setSelection(editable, 0);
-                        } catch (IndexOutOfBoundsException ignored) {
-                            // An IME may still be updating selection spans; an empty field is valid.
+        formattingAmount = true;
+        try {
+            if (digits.length() == 0) {
+                // Remove leftover grouping spaces if the user erased all digits.
+                for (int i = editable.length() - 1; i >= 0; i--) {
+                    if (editable.charAt(i) == ' ') editable.delete(i, i + 1);
+                }
+            } else {
+                int textPosition = 0;
+                int digitCount = digits.length();
+
+                for (int digitIndex = 0; digitIndex < digitCount; digitIndex++) {
+                    // Put a separator before every digit that starts a new group
+                    // of three, counting from the right side of the number.
+                    boolean needsSpace = digitIndex > 0
+                            && (digitCount - digitIndex) % 3 == 0;
+
+                    if (needsSpace) {
+                        if (textPosition < editable.length()
+                                && editable.charAt(textPosition) == ' ') {
+                            textPosition++;
+                        } else {
+                            editable.insert(textPosition, " ");
+                            textPosition++;
+                        }
+                    } else {
+                        // Remove separators that are no longer needed after edits.
+                        while (textPosition < editable.length()
+                                && editable.charAt(textPosition) == ' ') {
+                            editable.delete(textPosition, textPosition + 1);
                         }
                     }
-                } finally {
-                    formattingAmount = false;
-                }
-            }
-            if (input == productInput || input == upfrontInput) recalculate();
-            return;
-        }
 
-        StringBuilder formatted = new StringBuilder(digits.length() + digits.length() / 3);
-        int firstGroup = digits.length() % 3;
-        if (firstGroup == 0) firstGroup = 3;
-        for (int i = 0; i < digits.length(); i++) {
-            if (i > 0 && (i - firstGroup) % 3 == 0) formatted.append(' ');
-            formatted.append(digits.charAt(i));
-        }
-
-        if (!formatted.toString().contentEquals(editable)) {
-            int newStart = mapDigitCursor(formatted, digitsBeforeStart);
-            int newEnd = mapDigitCursor(formatted, digitsBeforeEnd);
-
-            // Retain whether the caret was just after a grouping separator.
-            if (oldStart > 0 && oldStart <= editable.length()
-                    && editable.charAt(oldStart - 1) == ' '
-                    && newStart < formatted.length() && formatted.charAt(newStart) == ' ') {
-                newStart++;
-            }
-            if (oldEnd > 0 && oldEnd <= editable.length()
-                    && editable.charAt(oldEnd - 1) == ' '
-                    && newEnd < formatted.length() && formatted.charAt(newEnd) == ' ') {
-                newEnd++;
-            }
-            newStart = Math.min(newStart, formatted.length());
-            newEnd = Math.min(newEnd, formatted.length());
-
-            formattingAmount = true;
-            try {
-                editable.replace(0, editable.length(), formatted);
-
-                // IMPORTANT: use the actual Editable length AFTER replacement.
-                // InputFilters/IME spans can make it shorter than the StringBuilder.
-                // Read the actual Editable length only AFTER replace: Android filters
-                // may shorten the requested replacement, so formatted.length() is unsafe.
-                int actualLength = editable.length();
-                int safeStart = Math.max(0, Math.min(newStart, actualLength));
-                int safeEnd = Math.max(0, Math.min(newEnd, actualLength));
-                if (safeStart > safeEnd) {
-                    int swap = safeStart;
-                    safeStart = safeEnd;
-                    safeEnd = swap;
-                }
-
-                // Drop stale selection spans, then restore only offsets valid for the
-                // final Editable. If an IME races this operation, retain the text edit.
-                try {
-                    Selection.removeSelection(editable);
-                    if (input.hasFocus()) {
-                        int finalLength = editable.length();
-                        int finalStart = Math.max(0, Math.min(safeStart, finalLength));
-                        int finalEnd = Math.max(0, Math.min(safeEnd, finalLength));
-                        Selection.setSelection(editable, finalStart, finalEnd);
+                    // Collapse any duplicate spaces at this position.
+                    while (textPosition < editable.length()
+                            && editable.charAt(textPosition) == ' ') {
+                        editable.delete(textPosition, textPosition + 1);
                     }
-                } catch (RuntimeException selectionError) {
-                    // Cursor restoration is non-critical. Never crash the calculator
-                    // if an IME updates selection spans concurrently.
-                    try {
-                        Selection.removeSelection(editable);
-                    } catch (RuntimeException ignored) { }
+
+                    // The non-space characters are the same digit sequence we
+                    // collected above. Advance past the next digit without moving
+                    // or resetting the caret ourselves.
+                    if (textPosition < editable.length()) {
+                        if (editable.charAt(textPosition) == digits.charAt(digitIndex)) {
+                            textPosition++;
+                        } else {
+                            // Defensive recovery for pasted text containing a
+                            // non-digit separator: remove spaces, then advance.
+                            while (textPosition < editable.length()
+                                    && editable.charAt(textPosition) == ' ') {
+                                editable.delete(textPosition, textPosition + 1);
+                            }
+                            if (textPosition < editable.length()) textPosition++;
+                        }
+                    }
                 }
-            } finally {
-                formattingAmount = false;
+
+                // Remove stray trailing spaces, if any.
+                while (textPosition < editable.length()) {
+                    if (editable.charAt(textPosition) == ' ') {
+                        editable.delete(textPosition, textPosition + 1);
+                    } else {
+                        textPosition++;
+                    }
+                }
             }
+        } catch (RuntimeException formattingError) {
+            // Formatting must never close the app. The raw digits remain readable
+            // and readAmount() ignores separators when calculating.
+        } finally {
+            formattingAmount = false;
         }
 
-        // Our main amount watcher intentionally skips the formatter's own edit.
-        // Recalculate once from the completed text instead.
+        // Main inputs recalculate once using the final digit value. The sales
+        // entry field is read when its Add button is pressed.
         if (input == productInput || input == upfrontInput) recalculate();
-    }
-
-    private int mapDigitCursor(CharSequence formatted, int digitCount) {
-        if (digitCount <= 0) return 0;
-        int position = 0;
-        int seen = 0;
-        while (position < formatted.length() && seen < digitCount) {
-            char ch = formatted.charAt(position++);
-            if (ch >= '0' && ch <= '9') seen++;
-        }
-        return position;
     }
 
     private void normalizeAmountInput(EditText input) {
         if (input == null || input.getText() == null) return;
-        // Reuse the same guarded formatter on focus loss. In this case the IME
-        // is no longer editing the field, so grouping can safely be finalized.
+        try {
+            BaseInputConnection.removeComposingSpans(input.getText());
+        } catch (RuntimeException ignored) {
+            // Continue with normalizing the numeric text.
+        }
         formatAmountInputInPlace(input);
     }
 
