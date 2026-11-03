@@ -39,8 +39,6 @@ import android.widget.Toast;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.text.DecimalFormat;
-import java.text.DecimalFormatSymbols;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Locale;
@@ -86,6 +84,9 @@ public class MainActivity extends Activity {
     private TextView salesSelectedSummary;
     private LinearLayout salesCalendarGrid;
     private EditText salesEntryInput;
+
+    // Guards the in-place thousands-separator edit from triggering duplicate calculations.
+    private boolean formattingAmount = false;
 
     private BigDecimal lastProduct = BigDecimal.ZERO;
     private BigDecimal lastUpfront = BigDecimal.ZERO;
@@ -430,8 +431,12 @@ public class MainActivity extends Activity {
 
         TextWatcher watcher = new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { recalculate(); }
-            @Override public void afterTextChanged(Editable s) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
+            @Override public void afterTextChanged(Editable s) {
+                // The formatter edits the same Editable internally. Recalculate only once,
+                // after the user's original text change and formatting are both complete.
+                if (!formattingAmount) recalculate();
+            }
         };
         productInput.addTextChangedListener(watcher);
         upfrontInput.addTextChangedListener(watcher);
@@ -1425,16 +1430,31 @@ public class MainActivity extends Activity {
 
     private BigDecimal readAmount(EditText input) {
         if (input == null || input.getText() == null) return BigDecimal.ZERO;
-        String digits = input.getText().toString().replaceAll("[^0-9]", "");
-        if (digits.isEmpty()) return BigDecimal.ZERO;
-        try { return new BigDecimal(digits); }
+        Editable value = input.getText();
+        StringBuilder digits = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (ch >= '0' && ch <= '9') digits.append(ch);
+        }
+        if (digits.length() == 0) return BigDecimal.ZERO;
+        try { return new BigDecimal(digits.toString()); }
         catch (NumberFormatException exception) { return BigDecimal.ZERO; }
     }
 
     private String formatMoney(BigDecimal amount) {
-        DecimalFormat format = new DecimalFormat("#,##0", new DecimalFormatSymbols(Locale.US));
-        format.setRoundingMode(RoundingMode.HALF_UP);
-        return format.format(amount.setScale(0, RoundingMode.HALF_UP)).replace(',', ' ');
+        String raw = amount.setScale(0, RoundingMode.HALF_UP).toPlainString();
+        boolean negative = raw.startsWith("-");
+        int start = negative ? 1 : 0;
+        int length = raw.length() - start;
+        StringBuilder formatted = new StringBuilder(raw.length() + raw.length() / 3);
+        if (negative) formatted.append('-');
+        int firstGroup = length % 3;
+        if (firstGroup == 0) firstGroup = 3;
+        for (int i = 0; i < length; i++) {
+            if (i > 0 && (i - firstGroup) % 3 == 0) formatted.append(' ');
+            formatted.append(raw.charAt(start + i));
+        }
+        return formatted.toString();
     }
 
     private EditText amountInput(String hint) {
@@ -1450,37 +1470,73 @@ public class MainActivity extends Activity {
         input.setBackground(amountFieldBackground());
 
         input.addTextChangedListener(new TextWatcher() {
-            private boolean formatting = false;
-
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
 
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
-                if (formatting) return;
-                String digits = s.toString().replaceAll("[^0-9]", "");
-                if (digits.isEmpty()) return;
-                String formatted = formatMoney(new BigDecimal(digits));
-                if (formatted.equals(s.toString())) return;
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
+
+            @Override public void afterTextChanged(Editable editable) {
+                if (formattingAmount) return;
 
                 int cursor = input.getSelectionStart();
-                if (cursor < 0) cursor = s.length();
+                if (cursor < 0) cursor = editable.length();
+                cursor = Math.min(cursor, editable.length());
+
+                // Keep only ASCII digits. Avoid regular expressions and BigDecimal
+                // construction on every key press.
+                StringBuilder digits = new StringBuilder(editable.length());
                 int digitsBeforeCursor = 0;
-                for (int i = 0; i < Math.min(cursor, s.length()); i++) {
-                    if (Character.isDigit(s.charAt(i))) digitsBeforeCursor++;
+                for (int i = 0; i < editable.length(); i++) {
+                    char ch = editable.charAt(i);
+                    if (ch >= '0' && ch <= '9') {
+                        digits.append(ch);
+                        if (i < cursor) digitsBeforeCursor++;
+                    }
                 }
 
-                formatting = true;
-                input.setText(formatted);
+                if (digits.length() == 0) {
+                    // If the user erased all digits, remove any leftover separator too.
+                    if (editable.length() > 0) {
+                        formattingAmount = true;
+                        try {
+                            editable.clear();
+                            input.setSelection(0);
+                        } finally {
+                            formattingAmount = false;
+                        }
+                    }
+                    return;
+                }
+
+                // Insert a space every three digits, working directly with the Editable.
+                StringBuilder formatted = new StringBuilder(digits.length() + digits.length() / 3);
+                int firstGroup = digits.length() % 3;
+                if (firstGroup == 0) firstGroup = 3;
+                for (int i = 0; i < digits.length(); i++) {
+                    if (i > 0 && (i - firstGroup) % 3 == 0) formatted.append(' ');
+                    formatted.append(digits.charAt(i));
+                }
+
+                if (formatted.toString().contentEquals(editable)) return;
+
+                // Restore the caret by digit position rather than raw character offset.
                 int newCursor = 0;
                 int digitsSeen = 0;
                 while (newCursor < formatted.length() && digitsSeen < digitsBeforeCursor) {
-                    if (Character.isDigit(formatted.charAt(newCursor))) digitsSeen++;
+                    if (formatted.charAt(newCursor) >= '0' && formatted.charAt(newCursor) <= '9') {
+                        digitsSeen++;
+                    }
                     newCursor++;
                 }
-                input.setSelection(Math.min(newCursor, formatted.length()));
-                formatting = false;
-            }
+                newCursor = Math.min(newCursor, formatted.length());
 
-            @Override public void afterTextChanged(Editable s) { }
+                formattingAmount = true;
+                try {
+                    editable.replace(0, editable.length(), formatted);
+                    input.setSelection(newCursor);
+                } finally {
+                    formattingAmount = false;
+                }
+            }
         });
         return input;
     }
