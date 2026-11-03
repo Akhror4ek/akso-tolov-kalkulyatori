@@ -10,10 +10,12 @@ import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RadialGradient;
+import android.graphics.RenderEffect;
 import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.InputType;
@@ -654,8 +656,34 @@ public class MainActivity extends Activity {
         scroll.setVerticalScrollBarEnabled(false);
         scroll.addView(panel, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        // Blur only the main calculator while this daily-sales dialog is visible.
+        // The dialog itself remains sharp and interactive.
+        View activityContent = findViewById(android.R.id.content);
+        final boolean[] backdropBlurApplied = {false};
+        dialog.setOnDismissListener(d -> {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && activityContent != null) {
+                try {
+                    activityContent.setRenderEffect(null);
+                } catch (RuntimeException ignored) {
+                    // Some device renderers may not support clearing a render effect.
+                }
+            }
+        });
+
         dialog.setContentView(scroll);
         dialog.show();
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && activityContent != null) {
+            try {
+                // A strong 22dp blur makes the underlying figures unreadable behind the glass.
+                activityContent.setRenderEffect(RenderEffect.createBlurEffect(
+                        dp(22), dp(22), Shader.TileMode.CLAMP));
+                backdropBlurApplied[0] = true;
+            } catch (RuntimeException ignored) {
+                activityContent.setRenderEffect(null);
+            }
+        }
+
         Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
@@ -665,7 +693,10 @@ public class MainActivity extends Activity {
             attributes.height = Math.min(
                     getResources().getDisplayMetrics().heightPixels - dp(100), dp(760));
             attributes.gravity = Gravity.CENTER;
-            attributes.dimAmount = darkMode ? 0.48f : 0.32f;
+            // Older Android versions without RenderEffect get a stronger dim fallback.
+            attributes.dimAmount = backdropBlurApplied[0]
+                    ? (darkMode ? 0.44f : 0.28f)
+                    : (darkMode ? 0.62f : 0.48f);
             window.setAttributes(attributes);
             window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
                     | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
