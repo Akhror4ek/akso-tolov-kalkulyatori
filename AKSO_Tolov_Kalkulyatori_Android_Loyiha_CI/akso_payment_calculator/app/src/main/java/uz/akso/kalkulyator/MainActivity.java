@@ -52,6 +52,14 @@ public class MainActivity extends Activity {
     private TextView[] monthlyValues = new TextView[4];
     private TextView[] totalValues = new TextView[4];
     private TextView[] grandValues = new TextView[4];
+    private TextView[] discountValues = new TextView[4];
+    private final int[] discountRates = {10, 15, 20, 25};
+    private final int[] discountColors = {
+            Color.rgb(17, 132, 75),
+            Color.rgb(25, 145, 83),
+            Color.rgb(190, 137, 0),
+            Color.rgb(210, 61, 61)
+    };
     private Button copyButton;
 
     private BigDecimal lastProduct = BigDecimal.ZERO;
@@ -164,6 +172,9 @@ public class MainActivity extends Activity {
         clearParams.setMargins(dp(8), 0, 0, 0);
         actions.addView(clearButton, clearParams);
         clearButton.setOnClickListener(v -> clearInputs());
+
+        addSpace(page, 11);
+        page.addView(buildDiscountCard(), matchWrap());
 
         FrameLayout.LayoutParams scrollParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
@@ -310,11 +321,81 @@ public class MainActivity extends Activity {
         return card;
     }
 
+    /** Compact frosted-glass panel showing cash prices after discounts. */
+    private View buildDiscountCard() {
+        GlassPanel card = new GlassPanel(this, false, 18);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(12), dp(9), dp(12), dp(9));
+
+        LinearLayout heading = new LinearLayout(this);
+        heading.setOrientation(LinearLayout.HORIZONTAL);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView title = text("CHEGIRMALI NARXLAR", 10, DARK_GREEN, true);
+        title.setLetterSpacing(0.07f);
+        heading.addView(title, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView caption = text("Asl narxdan", 8, MUTED, false);
+        heading.addView(caption, wrapWrap());
+        card.addView(heading, matchWrap());
+
+        for (int i = 0; i < discountRates.length; i++) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(10), dp(4), dp(10), dp(4));
+
+            GradientDrawable rowBackground = new GradientDrawable(
+                    GradientDrawable.Orientation.LEFT_RIGHT,
+                    new int[]{0xCFFFFFFF, 0x88FFFFFF});
+            rowBackground.setCornerRadius(dp(10));
+            rowBackground.setStroke(dp(1), 0xAFFFFFFF);
+            row.setBackground(rowBackground);
+
+            LinearLayout.LayoutParams rowParams = matchWrap();
+            rowParams.topMargin = dp(i == 0 ? 6 : 4);
+            card.addView(row, rowParams);
+
+            TextView label = text(
+                    "−" + discountRates[i] + "% CHEGIRMA", 9, MUTED, true);
+            label.setLetterSpacing(0.025f);
+            row.addView(label, new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+            discountValues[i] = text("—", 13, discountColors[i], true);
+            discountValues[i].setSingleLine(true);
+            discountValues[i].setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+            row.addView(discountValues[i], wrapWrap());
+        }
+
+        return card;
+    }
+
+    /** Discount is calculated from the original product price, never the down payment. */
+    private BigDecimal discountedPrice(BigDecimal originalPrice, int discountRate) {
+        return originalPrice
+                .multiply(BigDecimal.valueOf(100L - discountRate))
+                .divide(BigDecimal.valueOf(100), 0, RoundingMode.HALF_UP);
+    }
+
+    private void updateDiscountPrices(BigDecimal originalPrice) {
+        for (int i = 0; i < discountRates.length; i++) {
+            if (originalPrice.signum() <= 0) {
+                discountValues[i].setText("—");
+            } else {
+                BigDecimal discounted = discountedPrice(originalPrice, discountRates[i]);
+                discountValues[i].setText(formatMoney(discounted) + " so‘m");
+            }
+        }
+    }
+
     private void recalculate() {
         BigDecimal product = readAmount(productInput);
         BigDecimal upfront = readAmount(upfrontInput);
         lastProduct = product;
         lastUpfront = upfront;
+        updateDiscountPrices(product);
 
         if (upfront.compareTo(product) > 0) {
             lastValid = false;
@@ -364,6 +445,13 @@ public class MainActivity extends Activity {
                 .append("Mahsulot summasi: ").append(formatMoney(lastProduct)).append(" so‘m\n")
                 .append("Oldindan to‘lov: ").append(formatMoney(lastUpfront)).append(" so‘m\n")
                 .append("Qolgan summa: ").append(formatMoney(lastRemaining)).append(" so‘m\n\n");
+        result.append("CHEGIRMALI NARXLAR:\n");
+        for (int i = 0; i < discountRates.length; i++) {
+            result.append("−").append(discountRates[i]).append("%: ")
+                    .append(formatMoney(discountedPrice(lastProduct, discountRates[i])))
+                    .append(" so‘m\n");
+        }
+        result.append("\n");
         for (int i = 0; i < terms.length; i++) {
             BigDecimal total = lastRemaining.multiply(BigDecimal.valueOf(100L + rates[i]))
                     .divide(BigDecimal.valueOf(100), 0, RoundingMode.HALF_UP);
@@ -435,7 +523,7 @@ public class MainActivity extends Activity {
                 int newCursor = 0;
                 int digitsSeen = 0;
                 while (newCursor < formatted.length() && digitsSeen < digitsBeforeCursor) {
-                                        if (Character.isDigit(formatted.charAt(newCursor))) digitsSeen++;
+                    if (Character.isDigit(formatted.charAt(newCursor))) digitsSeen++;
                     newCursor++;
                 }
                 input.setSelection(Math.min(newCursor, formatted.length()));
