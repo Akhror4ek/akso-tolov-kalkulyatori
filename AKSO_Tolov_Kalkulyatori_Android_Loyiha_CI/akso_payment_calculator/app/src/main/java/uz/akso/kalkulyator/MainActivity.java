@@ -3,6 +3,7 @@ package uz.akso.kalkulyator;
 import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
@@ -18,6 +19,8 @@ import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -38,14 +41,19 @@ import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.util.Locale;
 
-/** AKSO installment calculator with a frosted-glass visual system and built-in mini calculator. */
+/** AKSO Liquid Glass calculator with persistent dark mode and tactile controls. */
 public class MainActivity extends Activity {
-    private static final int GREEN = Color.rgb(11, 179, 75);
-    private static final int DARK_GREEN = Color.rgb(7, 139, 57);
-    private static final int TEXT = Color.rgb(24, 43, 35);
-    private static final int MUTED = Color.rgb(105, 127, 116);
-    private static final int PAGE = Color.rgb(232, 245, 238);
-    private static final int BORDER = Color.rgb(222, 237, 228);
+    private int GREEN = Color.rgb(11, 179, 75);
+    private int DARK_GREEN = Color.rgb(7, 139, 57);
+    private int TEXT = Color.rgb(24, 43, 35);
+    private int MUTED = Color.rgb(105, 127, 116);
+    private int PAGE = Color.rgb(232, 245, 238);
+    private int BORDER = Color.rgb(222, 237, 228);
+
+    private SharedPreferences preferences;
+    private boolean darkMode = false;
+    private boolean soundEnabled = true;
+    private boolean vibrationEnabled = true;
 
     private EditText productInput;
     private EditText upfrontInput;
@@ -75,11 +83,12 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        Window window = getWindow();
-        window.setStatusBarColor(Color.rgb(232, 245, 238));
-        window.setNavigationBarColor(Color.rgb(232, 245, 238));
-        window.getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        preferences = getSharedPreferences("akso_ui_preferences", MODE_PRIVATE);
+        darkMode = preferences.getBoolean("dark_mode", false);
+        soundEnabled = preferences.getBoolean("sound_enabled", true);
+        vibrationEnabled = preferences.getBoolean("vibration_enabled", true);
+        applyThemePalette();
+        applySystemBarTheme();
         setContentView(buildScreen());
         productInput.setText("1000000");
         upfrontInput.setText("0");
@@ -158,6 +167,7 @@ public class MainActivity extends Activity {
         miniCalculatorButton.setBackground(glassButtonBackground(true));
         miniCalculatorButton.setElevation(dp(5));
         actions.addView(miniCalculatorButton, new LinearLayout.LayoutParams(0, dp(46), 1f));
+        attachInteractionFeedback(miniCalculatorButton);
         miniCalculatorButton.setOnClickListener(v -> showMiniCalculator());
 
         Button clearButton = new Button(this);
@@ -173,6 +183,7 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(dp(96), dp(46));
         clearParams.setMargins(dp(8), 0, 0, 0);
         actions.addView(clearButton, clearParams);
+        attachInteractionFeedback(clearButton);
         clearButton.setOnClickListener(v -> clearInputs());
 
         addSpace(page, 11);
@@ -196,16 +207,153 @@ public class MainActivity extends Activity {
         brand.setLetterSpacing(0.18f);
         titleGroup.addView(brand, matchWrap());
 
-        TextView title = text("Bo‘lib to‘lash kalkulyatori", 17, Color.WHITE, true);
+        TextView title = text("Bo‘lib to‘lash kalkulyatori", 16, Color.WHITE, true);
         title.setPadding(0, dp(3), 0, 0);
         titleGroup.addView(title, matchWrap());
         header.addView(titleGroup, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        TextView subtitle = text("3  ·  6  ·  9  ·  12 oy", 10, Color.WHITE, true);
+        TextView subtitle = text("3 · 6 · 9 · 12 oy", 9, Color.WHITE, true);
         subtitle.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         subtitle.setShadowLayer(dp(5), 0, dp(1), 0x55FFFFFF);
         header.addView(subtitle, wrapWrap());
+
+        Button settingsButton = calculatorButton("⚙", 13, false, true);
+        LinearLayout.LayoutParams settingsParams = new LinearLayout.LayoutParams(dp(32), dp(32));
+        settingsParams.setMargins(dp(6), 0, 0, 0);
+        header.addView(settingsButton, settingsParams);
+        settingsButton.setOnClickListener(v -> showSettingsDialog());
+
         return header;
+    }
+
+    private void showSettingsDialog() {
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dialog.setCancelable(true);
+
+        GlassPanel panel = new GlassPanel(this, false, 21);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(16), dp(14), dp(16), dp(14));
+
+        TextView heading = text("AKSO  /  SOZLAMALAR", 12, DARK_GREEN, true);
+        heading.setLetterSpacing(0.09f);
+        panel.addView(heading, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(34)));
+
+        TextView note = text("Ilova ko‘rinishi va tugma effektlari", 9, MUTED, false);
+        panel.addView(note, matchWrap());
+        addSpace(panel, 8);
+
+        Button themeToggle = calculatorButton(themeSettingLabel(), 11, false, true);
+        panel.addView(themeToggle, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+        themeToggle.setOnClickListener(v -> {
+            String product = productInput.getText().toString();
+            String upfront = upfrontInput.getText().toString();
+            darkMode = !darkMode;
+            preferences.edit().putBoolean("dark_mode", darkMode).apply();
+            dialog.dismiss();
+            applyThemePalette();
+            applySystemBarTheme();
+            setContentView(buildScreen());
+            productInput.setText(product);
+            upfrontInput.setText(upfront);
+            recalculate();
+        });
+
+        addSpace(panel, 6);
+        Button soundToggle = calculatorButton(soundSettingLabel(), 10, false, true);
+        panel.addView(soundToggle, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(42)));
+        soundToggle.setOnClickListener(v -> {
+            soundEnabled = !soundEnabled;
+            preferences.edit().putBoolean("sound_enabled", soundEnabled).apply();
+            soundToggle.setText(soundSettingLabel());
+        });
+
+        addSpace(panel, 5);
+        Button vibrationToggle = calculatorButton(vibrationSettingLabel(), 10, false, true);
+        panel.addView(vibrationToggle, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(42)));
+        vibrationToggle.setOnClickListener(v -> {
+            vibrationEnabled = !vibrationEnabled;
+            preferences.edit().putBoolean("vibration_enabled", vibrationEnabled).apply();
+            vibrationToggle.setText(vibrationSettingLabel());
+        });
+
+        addSpace(panel, 8);
+        Button close = calculatorButton("Yopish", 10, true, false);
+        panel.addView(close, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(42)));
+        close.setOnClickListener(v -> dialog.dismiss());
+
+        dialog.setContentView(panel);
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            WindowManager.LayoutParams attributes = window.getAttributes();
+            attributes.width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(36), dp(350));
+            attributes.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+            attributes.gravity = Gravity.CENTER;
+            attributes.dimAmount = darkMode ? 0.46f : 0.30f;
+            window.setAttributes(attributes);
+        }
+    }
+
+    private String themeSettingLabel() {
+        return darkMode ? "TUNGI REJIM  ·  YOQILGAN" : "TUNGI REJIM  ·  O‘CHIRILGAN";
+    }
+
+    private String soundSettingLabel() {
+        return soundEnabled ? "TUGMA OVOZI  ·  YOQILGAN" : "TUGMA OVOZI  ·  O‘CHIRILGAN";
+    }
+
+    private String vibrationSettingLabel() {
+        return vibrationEnabled ? "VIBRATSIYA  ·  YOQILGAN" : "VIBRATSIYA  ·  O‘CHIRILGAN";
+    }
+
+    private void applyThemePalette() {
+        if (darkMode) {
+            GREEN = Color.rgb(38, 190, 116);
+            DARK_GREEN = Color.rgb(105, 224, 164);
+            TEXT = Color.rgb(233, 245, 237);
+            MUTED = Color.rgb(163, 187, 172);
+            PAGE = Color.rgb(12, 25, 19);
+            BORDER = Color.rgb(67, 94, 77);
+        } else {
+            GREEN = Color.rgb(11, 179, 75);
+            DARK_GREEN = Color.rgb(7, 139, 57);
+            TEXT = Color.rgb(24, 43, 35);
+            MUTED = Color.rgb(105, 127, 116);
+            PAGE = Color.rgb(232, 245, 238);
+            BORDER = Color.rgb(222, 237, 228);
+        }
+    }
+
+    private void applySystemBarTheme() {
+        Window window = getWindow();
+        window.setStatusBarColor(PAGE);
+        window.setNavigationBarColor(PAGE);
+        int flags = darkMode ? 0
+                : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+        window.getDecorView().setSystemUiVisibility(flags);
+    }
+
+    private void attachInteractionFeedback(View view) {
+        view.setSoundEffectsEnabled(true);
+        view.setHapticFeedbackEnabled(true);
+        view.setOnTouchListener((target, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                // Let Android play its normal click sound when enabled; avoid duplicate manual playback.
+                target.setSoundEffectsEnabled(soundEnabled);
+                if (vibrationEnabled) {
+                    target.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+                }
+            }
+            return false;
+        });
     }
 
     private View buildInputCard() {
@@ -345,11 +493,13 @@ public class MainActivity extends Activity {
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(dp(10), dp(4), dp(10), dp(4));
 
+            int[] rowColors = darkMode
+                    ? new int[]{0xB92E4438, 0x8F1B2E24}
+                    : new int[]{0xCFFFFFFF, 0x88FFFFFF};
             GradientDrawable rowBackground = new GradientDrawable(
-                    GradientDrawable.Orientation.LEFT_RIGHT,
-                    new int[]{0xCFFFFFFF, 0x88FFFFFF});
+                    GradientDrawable.Orientation.LEFT_RIGHT, rowColors);
             rowBackground.setCornerRadius(dp(10));
-            rowBackground.setStroke(dp(1), 0xAFFFFFFF);
+            rowBackground.setStroke(dp(1), darkMode ? 0x776CE0A4 : 0xAFFFFFFF);
             row.setBackground(rowBackground);
 
             LinearLayout.LayoutParams rowParams = matchWrap();
@@ -543,7 +693,7 @@ public class MainActivity extends Activity {
             attributes.width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(28), dp(390));
             attributes.height = ViewGroup.LayoutParams.WRAP_CONTENT;
             attributes.gravity = Gravity.CENTER;
-            attributes.dimAmount = 0.28f;
+            attributes.dimAmount = darkMode ? 0.48f : 0.28f;
             window.setAttributes(attributes);
         }
     }
@@ -574,11 +724,17 @@ public class MainActivity extends Activity {
 
         int[] colors;
         if (primary) {
-            colors = new int[]{0xF20DBD5B, 0xE8078B45};
+            colors = darkMode
+                    ? new int[]{0xF22CCB81, 0xE80D8050}
+                    : new int[]{0xF20DBD5B, 0xE8078B45};
         } else if (operator) {
-            colors = new int[]{0xE7FFFFFF, 0xBDE0F1E6};
+            colors = darkMode
+                    ? new int[]{0xD9345945, 0xB922382C}
+                    : new int[]{0xE7FFFFFF, 0xBDE0F1E6};
         } else {
-            colors = new int[]{0xDFFFFFFF, 0xAFFFFFFF};
+            colors = darkMode
+                    ? new int[]{0xD92A3A31, 0xB91A2922}
+                    : new int[]{0xDFFFFFFF, 0xAFFFFFFF};
         }
         GradientDrawable background = new GradientDrawable(
                 GradientDrawable.Orientation.TL_BR, colors);
@@ -586,6 +742,7 @@ public class MainActivity extends Activity {
         background.setStroke(dp(1), 0xBFFFFFFF);
         button.setBackground(background);
         button.setElevation(dp(primary ? 3 : 1));
+        attachInteractionFeedback(button);
         return button;
     }
 
@@ -928,7 +1085,7 @@ public class MainActivity extends Activity {
         input.setTextSize(17);
         input.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         input.setTextColor(DARK_GREEN);
-        input.setHintTextColor(0xFF9BAFA4);
+        input.setHintTextColor(darkMode ? 0xFF9AAFA2 : 0xFF9BAFA4);
         input.setHint(hint);
         input.setInputType(InputType.TYPE_CLASS_NUMBER);
         input.setPadding(dp(11), 0, dp(11), 0);
@@ -971,28 +1128,39 @@ public class MainActivity extends Activity {
     }
 
     private GradientDrawable amountFieldBackground() {
-        GradientDrawable d = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                new int[]{0xCFFFFFFF, 0xAFFFFFFF});
+        int[] colors = darkMode
+                ? new int[]{0xD92D4136, 0xBC1C2D24}
+                : new int[]{0xCFFFFFFF, 0xAFFFFFFF};
+        GradientDrawable d = new GradientDrawable(GradientDrawable.Orientation.TL_BR, colors);
         d.setCornerRadius(dp(13));
-        d.setStroke(dp(1), 0xBFFFFFFF);
+        d.setStroke(dp(1), darkMode ? 0x88D9F7E5 : 0xBFFFFFFF);
         return d;
     }
 
     private GradientDrawable glassTintBackground() {
-        GradientDrawable d = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                new int[]{0xCDEBFAF0, 0xA8D9F0E2});
+        int[] colors = darkMode
+                ? new int[]{0xC92F7650, 0xA81C4934}
+                : new int[]{0xCDEBFAF0, 0xA8D9F0E2};
+        GradientDrawable d = new GradientDrawable(GradientDrawable.Orientation.TL_BR, colors);
         d.setCornerRadius(dp(14));
-        d.setStroke(dp(1), 0xDFFFFFFF);
+        d.setStroke(dp(1), darkMode ? 0x885CE09C : 0xDFFFFFFF);
         return d;
     }
 
     private GradientDrawable glassButtonBackground(boolean primary) {
-        int[] colors = primary
-                ? new int[]{0xF20DBD5B, 0xE8078B45}
-                : new int[]{0xEFFFFFFF, 0xBFEAF5EF};
+        int[] colors;
+        if (primary) {
+            colors = darkMode
+                    ? new int[]{0xF22CCB81, 0xE80A7950}
+                    : new int[]{0xF20DBD5B, 0xE8078B45};
+        } else {
+            colors = darkMode
+                    ? new int[]{0xD9345945, 0xB91B2D23}
+                    : new int[]{0xEFFFFFFF, 0xBFEAF5EF};
+        }
         GradientDrawable d = new GradientDrawable(GradientDrawable.Orientation.TL_BR, colors);
         d.setCornerRadius(dp(15));
-        d.setStroke(dp(1), primary ? 0xBFFFFFFF : 0xEFFFFFFF);
+        d.setStroke(dp(1), darkMode ? 0x887FE4B0 : (primary ? 0xBFFFFFFF : 0xEFFFFFFF));
         return d;
     }
 
@@ -1052,20 +1220,33 @@ public class MainActivity extends Activity {
             float w = getWidth();
             float h = getHeight();
 
+            int[] backdropColors = darkMode
+                    ? new int[]{0xFF0B1711, 0xFF13271D, 0xFF10231A}
+                    : new int[]{0xFFF3FBF6, 0xFFE7F5ED, 0xFFE2F1E9};
             paint.setShader(new LinearGradient(0, 0, w * 0.35f, h,
-                    new int[]{0xFFF3FBF6, 0xFFE7F5ED, 0xFFE2F1E9},
-                    null, Shader.TileMode.CLAMP));
+                    backdropColors, null, Shader.TileMode.CLAMP));
             canvas.drawRect(0, 0, w, h, paint);
             paint.setShader(null);
 
-            drawGlow(canvas, w * 0.90f, h * 0.10f, w * 0.72f,
-                    new int[]{0x665EE59A, 0x2255C982, 0x0055C982});
-            drawGlow(canvas, w * 0.05f, h * 0.46f, w * 0.62f,
-                    new int[]{0x55FFFFFF, 0x1FFFFFFF, 0x00FFFFFF});
-            drawGlow(canvas, w * 0.83f, h * 0.80f, w * 0.78f,
-                    new int[]{0x4438C979, 0x1A8FD1AA, 0x008FD1AA});
-            drawGlow(canvas, w * 0.15f, h * 0.95f, w * 0.52f,
-                    new int[]{0x33FFFFFF, 0x11FFFFFF, 0x00FFFFFF});
+            if (darkMode) {
+                drawGlow(canvas, w * 0.90f, h * 0.10f, w * 0.72f,
+                        new int[]{0x5532D889, 0x2225A66B, 0x0025A66B});
+                drawGlow(canvas, w * 0.05f, h * 0.46f, w * 0.62f,
+                        new int[]{0x22B8F2D0, 0x0CFFFFFF, 0x00FFFFFF});
+                drawGlow(canvas, w * 0.83f, h * 0.80f, w * 0.78f,
+                        new int[]{0x4430BB79, 0x1A287E57, 0x00287E57});
+                drawGlow(canvas, w * 0.15f, h * 0.95f, w * 0.52f,
+                        new int[]{0x1FFFFFFF, 0x08FFFFFF, 0x00FFFFFF});
+            } else {
+                drawGlow(canvas, w * 0.90f, h * 0.10f, w * 0.72f,
+                        new int[]{0x665EE59A, 0x2255C982, 0x0055C982});
+                drawGlow(canvas, w * 0.05f, h * 0.46f, w * 0.62f,
+                        new int[]{0x55FFFFFF, 0x1FFFFFFF, 0x00FFFFFF});
+                drawGlow(canvas, w * 0.83f, h * 0.80f, w * 0.78f,
+                        new int[]{0x4438C979, 0x1A8FD1AA, 0x008FD1AA});
+                drawGlow(canvas, w * 0.15f, h * 0.95f, w * 0.52f,
+                        new int[]{0x33FFFFFF, 0x11FFFFFF, 0x00FFFFFF});
+            }
         }
 
         private void drawGlow(Canvas canvas, float x, float y, float radius, int[] colors) {
@@ -1098,6 +1279,10 @@ public class MainActivity extends Activity {
                 d = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
                         new int[]{0xF20CC05A, 0xED079A49, 0xF006803C});
                 d.setStroke(dp(1), 0xBFFFFFFF);
+            } else if (darkMode) {
+                d = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                        new int[]{0xD92E4438, 0xB91B2D24, 0xC91D3A2C});
+                d.setStroke(dp(1), 0x8AFFFFFF);
             } else {
                 d = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
                         new int[]{0xCFFFFFFF, 0xAFFFFFFF, 0xBFEFF8F2});
@@ -1121,20 +1306,22 @@ public class MainActivity extends Activity {
             sheen.setShader(new LinearGradient(0, 0, 0, h * 0.78f,
                     emerald
                             ? new int[]{0x44FFFFFF, 0x13FFFFFF, 0x00FFFFFF}
-                            : new int[]{0x66FFFFFF, 0x24FFFFFF, 0x00FFFFFF},
+                            : (darkMode
+                                ? new int[]{0x33D7FFE6, 0x1599D6B4, 0x0099D6B4}
+                                : new int[]{0x66FFFFFF, 0x24FFFFFF, 0x00FFFFFF}),
                     null, Shader.TileMode.CLAMP));
             canvas.drawRect(0, 0, w, h * 0.78f, sheen);
             sheen.setShader(null);
 
             sheen.setShader(new RadialGradient(w * 0.12f, h * 0.04f, w * 0.72f,
-                    new int[]{emerald ? 0x38FFFFFF : 0x42FFFFFF, 0x00FFFFFF},
+                    new int[]{emerald ? 0x38FFFFFF : (darkMode ? 0x2A9BF2C3 : 0x42FFFFFF), 0x00FFFFFF},
                     null, Shader.TileMode.CLAMP));
             canvas.drawRect(0, 0, w, h * 0.55f, sheen);
             sheen.setShader(null);
 
             rim.setStyle(Paint.Style.STROKE);
             rim.setStrokeWidth(dp(1));
-            rim.setColor(emerald ? 0x88FFFFFF : 0xBFFFFFFF);
+            rim.setColor(emerald ? 0x88FFFFFF : (darkMode ? 0x7797DDB6 : 0xBFFFFFFF));
             canvas.drawPath(clip, rim);
             rim.setStyle(Paint.Style.FILL);
 
