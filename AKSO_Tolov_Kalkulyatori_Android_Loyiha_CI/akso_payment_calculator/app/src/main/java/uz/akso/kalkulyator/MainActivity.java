@@ -1,8 +1,7 @@
 package uz.akso.kalkulyator;
 
 import android.app.Activity;
-import android.content.ClipData;
-import android.content.ClipboardManager;
+import android.app.Dialog;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -12,6 +11,7 @@ import android.graphics.Path;
 import android.graphics.RadialGradient;
 import android.graphics.Shader;
 import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.text.Editable;
@@ -21,6 +21,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
+import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
@@ -36,7 +37,7 @@ import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.util.Locale;
 
-/** AKSO installment calculator with a custom frosted-glass visual system. */
+/** AKSO installment calculator with a frosted-glass visual system and built-in mini calculator. */
 public class MainActivity extends Activity {
     private static final int GREEN = Color.rgb(11, 179, 75);
     private static final int DARK_GREEN = Color.rgb(7, 139, 57);
@@ -60,7 +61,7 @@ public class MainActivity extends Activity {
             Color.rgb(190, 137, 0),
             Color.rgb(210, 61, 61)
     };
-    private Button copyButton;
+    private Button miniCalculatorButton;
 
     private BigDecimal lastProduct = BigDecimal.ZERO;
     private BigDecimal lastUpfront = BigDecimal.ZERO;
@@ -144,19 +145,19 @@ public class MainActivity extends Activity {
         page.addView(actions, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
 
-        copyButton = new Button(this);
-        copyButton.setText("NATIJANI NUSXALASH");
-        copyButton.setTextSize(11);
-        copyButton.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        copyButton.setTextColor(Color.WHITE);
-        copyButton.setAllCaps(false);
-        copyButton.setMinHeight(0);
-        copyButton.setMinimumHeight(0);
-        copyButton.setPadding(dp(6), 0, dp(6), 0);
-        copyButton.setBackground(glassButtonBackground(true));
-        copyButton.setElevation(dp(5));
-        actions.addView(copyButton, new LinearLayout.LayoutParams(0, dp(46), 1f));
-        copyButton.setOnClickListener(v -> copyResults());
+        miniCalculatorButton = new Button(this);
+        miniCalculatorButton.setText("MINI KALKULYATOR");
+        miniCalculatorButton.setTextSize(11);
+        miniCalculatorButton.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        miniCalculatorButton.setTextColor(Color.WHITE);
+        miniCalculatorButton.setAllCaps(false);
+        miniCalculatorButton.setMinHeight(0);
+        miniCalculatorButton.setMinimumHeight(0);
+        miniCalculatorButton.setPadding(dp(6), 0, dp(6), 0);
+        miniCalculatorButton.setBackground(glassButtonBackground(true));
+        miniCalculatorButton.setElevation(dp(5));
+        actions.addView(miniCalculatorButton, new LinearLayout.LayoutParams(0, dp(46), 1f));
+        miniCalculatorButton.setOnClickListener(v -> showMiniCalculator());
 
         Button clearButton = new Button(this);
         clearButton.setText("Tozalash");
@@ -321,7 +322,6 @@ public class MainActivity extends Activity {
         return card;
     }
 
-    /** Compact frosted-glass panel showing cash prices after discounts. */
     private View buildDiscountCard() {
         GlassPanel card = new GlassPanel(this, false, 18);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -330,12 +330,10 @@ public class MainActivity extends Activity {
         LinearLayout heading = new LinearLayout(this);
         heading.setOrientation(LinearLayout.HORIZONTAL);
         heading.setGravity(Gravity.CENTER_VERTICAL);
-
         TextView title = text("CHEGIRMALI NARXLAR", 10, DARK_GREEN, true);
         title.setLetterSpacing(0.07f);
         heading.addView(title, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
         TextView caption = text("Asl narxdan", 8, MUTED, false);
         heading.addView(caption, wrapWrap());
         card.addView(heading, matchWrap());
@@ -357,8 +355,7 @@ public class MainActivity extends Activity {
             rowParams.topMargin = dp(i == 0 ? 6 : 4);
             card.addView(row, rowParams);
 
-            TextView label = text(
-                    "−" + discountRates[i] + "% CHEGIRMA", 9, MUTED, true);
+            TextView label = text("−" + discountRates[i] + "% CHEGIRMA", 9, MUTED, true);
             label.setLetterSpacing(0.025f);
             row.addView(label, new LinearLayout.LayoutParams(
                     0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -368,14 +365,11 @@ public class MainActivity extends Activity {
             discountValues[i].setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
             row.addView(discountValues[i], wrapWrap());
         }
-
         return card;
     }
 
-    /** Discount is calculated from the original product price, never the down payment. */
     private BigDecimal discountedPrice(BigDecimal originalPrice, int discountRate) {
-        return originalPrice
-                .multiply(BigDecimal.valueOf(100L - discountRate))
+        return originalPrice.multiply(BigDecimal.valueOf(100L - discountRate))
                 .divide(BigDecimal.valueOf(100), 0, RoundingMode.HALF_UP);
     }
 
@@ -403,8 +397,6 @@ public class MainActivity extends Activity {
             remainingValue.setText("0 so‘m");
             validationText.setText("Oldindan to‘lov mahsulot summasidan oshmasin.");
             setPlanPlaceholders();
-            copyButton.setEnabled(false);
-            copyButton.setAlpha(0.5f);
             return;
         }
 
@@ -412,8 +404,6 @@ public class MainActivity extends Activity {
         lastRemaining = product.subtract(upfront);
         remainingValue.setText(formatMoney(lastRemaining) + " so‘m");
         validationText.setText("");
-        copyButton.setEnabled(true);
-        copyButton.setAlpha(1f);
 
         for (int i = 0; i < terms.length; i++) {
             BigDecimal financedTotal = lastRemaining
@@ -435,34 +425,365 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void copyResults() {
-        if (!lastValid) {
-            Toast.makeText(this, "Oldindan to‘lov summasini tekshiring.", Toast.LENGTH_SHORT).show();
+    /** Opens the built-in arithmetic calculator in a frosted-glass dialog. */
+    private void showMiniCalculator() {
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dialog.setCancelable(true);
+
+        GlassPanel panel = new GlassPanel(this, false, 23);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(15), dp(14), dp(15), dp(14));
+
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = text("AKSO  /  MINI CALCULATOR", 11, DARK_GREEN, true);
+        title.setLetterSpacing(0.08f);
+        titleRow.addView(title, new LinearLayout.LayoutParams(0, dp(32), 1f));
+        Button closeButton = calculatorButton("✕", 10, false, false);
+        titleRow.addView(closeButton, new LinearLayout.LayoutParams(dp(38), dp(36)));
+        panel.addView(titleRow, matchWrap());
+
+        GlassPanel displayPanel = new GlassPanel(this, false, 14);
+        displayPanel.setOrientation(LinearLayout.VERTICAL);
+        displayPanel.setPadding(dp(12), dp(8), dp(12), dp(8));
+        LinearLayout.LayoutParams displayParams = matchWrap();
+        displayParams.topMargin = dp(8);
+        displayParams.bottomMargin = dp(10);
+        panel.addView(displayPanel, displayParams);
+
+        TextView expression = text("Hisoblashni boshlang", 10, MUTED, false);
+        expression.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        displayPanel.addView(expression, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(20)));
+        TextView resultDisplay = text("0", 27, DARK_GREEN, true);
+        resultDisplay.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        resultDisplay.setSingleLine(true);
+        displayPanel.addView(resultDisplay, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+
+        MiniCalculator calculator = new MiniCalculator(expression, resultDisplay);
+        String[][] keys = {
+                {"AC", "⌫", "%", "÷"},
+                {"7", "8", "9", "×"},
+                {"4", "5", "6", "−"},
+                {"1", "2", "3", "+"},
+                {"±", "0", ".", "="}
+        };
+
+        for (String[] keyRow : keys) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            LinearLayout.LayoutParams rowParams = matchWrap();
+            rowParams.topMargin = dp(4);
+            panel.addView(row, rowParams);
+
+            for (int i = 0; i < keyRow.length; i++) {
+                String key = keyRow[i];
+                Button button = calculatorButton(key, key.length() > 1 ? 13 : 18,
+                        key.equals("="), isOperatorKey(key));
+                LinearLayout.LayoutParams keyParams = new LinearLayout.LayoutParams(
+                        0, dp(49), 1f);
+                if (i > 0) keyParams.setMargins(dp(5), 0, 0, 0);
+                row.addView(button, keyParams);
+                button.setOnClickListener(v -> calculator.press(key));
+            }
+        }
+
+        TextView transferHint = text(
+                "Natijani asosiy narx maydonlariga yuborishingiz mumkin.",
+                9, MUTED, false);
+        transferHint.setPadding(dp(2), dp(9), dp(2), dp(4));
+        panel.addView(transferHint, matchWrap());
+
+        LinearLayout transferRow = new LinearLayout(this);
+        transferRow.setOrientation(LinearLayout.HORIZONTAL);
+        transferRow.setGravity(Gravity.CENTER_VERTICAL);
+        panel.addView(transferRow, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(42)));
+
+        Button toProduct = calculatorButton("Mahsulotga", 10, true, false);
+        transferRow.addView(toProduct, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        toProduct.setOnClickListener(v -> transferCalculatorValue(calculator, productInput, dialog));
+
+        Button toUpfront = calculatorButton("Oldindan to‘lovga", 10, false, false);
+        LinearLayout.LayoutParams upfrontParams = new LinearLayout.LayoutParams(0, dp(42), 1f);
+        upfrontParams.setMargins(dp(6), 0, 0, 0);
+        transferRow.addView(toUpfront, upfrontParams);
+        toUpfront.setOnClickListener(v -> transferCalculatorValue(calculator, upfrontInput, dialog));
+
+        dialog.setContentView(panel);
+        dialog.show();
+        closeButton.setOnClickListener(v -> dialog.dismiss());
+
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            WindowManager.LayoutParams attributes = window.getAttributes();
+            attributes.width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(28), dp(390));
+            attributes.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+            attributes.gravity = Gravity.CENTER;
+            attributes.dimAmount = 0.28f;
+            window.setAttributes(attributes);
+        }
+    }
+
+    private void transferCalculatorValue(MiniCalculator calculator, EditText target, Dialog dialog) {
+        BigDecimal value = calculator.getValue();
+        if (value == null) {
+            Toast.makeText(this, "Avval hisob-kitobni to‘g‘ri kiriting.", Toast.LENGTH_SHORT).show();
             return;
         }
-        StringBuilder result = new StringBuilder();
-        result.append("AKSO — BO‘LIB TO‘LASH HISOB-KITOBI\n")
-                .append("Mahsulot summasi: ").append(formatMoney(lastProduct)).append(" so‘m\n")
-                .append("Oldindan to‘lov: ").append(formatMoney(lastUpfront)).append(" so‘m\n")
-                .append("Qolgan summa: ").append(formatMoney(lastRemaining)).append(" so‘m\n\n");
-        result.append("CHEGIRMALI NARXLAR:\n");
-        for (int i = 0; i < discountRates.length; i++) {
-            result.append("−").append(discountRates[i]).append("%: ")
-                    .append(formatMoney(discountedPrice(lastProduct, discountRates[i])))
-                    .append(" so‘m\n");
+        BigDecimal wholeSum = value.setScale(0, RoundingMode.HALF_UP);
+        target.setText(formatMoney(wholeSum));
+        target.clearFocus();
+        dialog.dismiss();
+        Toast.makeText(this, "Qiymat maydonga joylandi.", Toast.LENGTH_SHORT).show();
+    }
+
+    private Button calculatorButton(String label, float textSize, boolean primary, boolean operator) {
+        Button button = new Button(this);
+        button.setText(label);
+        button.setTextSize(textSize);
+        button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        button.setAllCaps(false);
+        button.setMinHeight(0);
+        button.setMinimumHeight(0);
+        button.setPadding(dp(3), 0, dp(3), 0);
+        button.setTextColor(primary ? Color.WHITE : (operator ? DARK_GREEN : TEXT));
+
+        int[] colors;
+        if (primary) {
+            colors = new int[]{0xF20DBD5B, 0xE8078B45};
+        } else if (operator) {
+            colors = new int[]{0xE7FFFFFF, 0xBDE0F1E6};
+        } else {
+            colors = new int[]{0xDFFFFFFF, 0xAFFFFFFF};
         }
-        result.append("\n");
-        for (int i = 0; i < terms.length; i++) {
-            BigDecimal total = lastRemaining.multiply(BigDecimal.valueOf(100L + rates[i]))
-                    .divide(BigDecimal.valueOf(100), 0, RoundingMode.HALF_UP);
-            BigDecimal monthly = total.divide(BigDecimal.valueOf(terms[i]), 0, RoundingMode.HALF_UP);
-            result.append(terms[i]).append(" oy: ")
-                    .append(formatMoney(monthly)).append(" so‘m/oy; jami ")
-                    .append(formatMoney(total)).append(" so‘m\n");
+        GradientDrawable background = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR, colors);
+        background.setCornerRadius(dp(12));
+        background.setStroke(dp(1), 0xBFFFFFFF);
+        button.setBackground(background);
+        button.setElevation(dp(primary ? 3 : 1));
+        return button;
+    }
+
+    private boolean isOperatorKey(String key) {
+        return key.equals("÷") || key.equals("×") || key.equals("−")
+                || key.equals("+") || key.equals("%") || key.equals("±");
+    }
+
+    /** Small, independent calculator engine. It never changes the installment formulas. */
+    private class MiniCalculator {
+        private final TextView expressionView;
+        private final TextView resultView;
+        private String entry = "0";
+        private BigDecimal accumulator;
+        private String pendingOperator;
+        private boolean startNewEntry = true;
+        private boolean error;
+
+        MiniCalculator(TextView expressionView, TextView resultView) {
+            this.expressionView = expressionView;
+            this.resultView = resultView;
+            refresh();
         }
-        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-        clipboard.setPrimaryClip(ClipData.newPlainText("AKSO hisob-kitobi", result.toString()));
-        Toast.makeText(this, "Hisob-kitob nusxalandi.", Toast.LENGTH_SHORT).show();
+
+        void press(String key) {
+            if (key.equals("AC")) {
+                clear();
+                refresh();
+                return;
+            }
+            if (error) clear();
+
+            try {
+                if (key.length() == 1 && key.charAt(0) >= '0' && key.charAt(0) <= '9') {
+                    digit(key);
+                } else if (key.equals(".")) {
+                    decimalPoint();
+                } else if (key.equals("⌫")) {
+                    backspace();
+                } else if (key.equals("±")) {
+                    toggleSign();
+                } else if (key.equals("%")) {
+                    percent();
+                } else if (key.equals("=")) {
+                    equals();
+                } else if (isMathOperator(key)) {
+                    operator(key);
+                }
+            } catch (ArithmeticException exception) {
+                error = true;
+                accumulator = null;
+                pendingOperator = null;
+                expressionView.setText("Nolga bo‘lish mumkin emas");
+            } catch (NumberFormatException exception) {
+                error = true;
+                accumulator = null;
+                pendingOperator = null;
+                expressionView.setText("Hisoblashda xatolik");
+            }
+            refresh();
+        }
+
+        private boolean isMathOperator(String key) {
+            return key.equals("+") || key.equals("−") || key.equals("×") || key.equals("÷");
+        }
+
+        private void digit(String digit) {
+            if (startNewEntry) {
+                entry = digit;
+                startNewEntry = false;
+            } else if (entry.length() < 20) {
+                if (entry.equals("0")) entry = digit;
+                else if (entry.equals("-0")) entry = "-" + digit;
+                else entry += digit;
+            }
+        }
+
+        private void decimalPoint() {
+            if (startNewEntry) {
+                entry = "0.";
+                startNewEntry = false;
+            } else if (!entry.contains(".")) {
+                entry += ".";
+            }
+        }
+
+        private void backspace() {
+            if (startNewEntry) {
+                entry = "0";
+                startNewEntry = false;
+                return;
+            }
+            if (entry.length() <= 1 || (entry.length() == 2 && entry.startsWith("-"))) {
+                entry = "0";
+            } else {
+                entry = entry.substring(0, entry.length() - 1);
+            }
+        }
+
+        private void toggleSign() {
+            if (entry.startsWith("-")) entry = entry.substring(1);
+            else if (!entry.equals("0")) entry = "-" + entry;
+            startNewEntry = false;
+        }
+
+        private void percent() {
+            BigDecimal value = number();
+            if (accumulator != null && pendingOperator != null
+                    && (pendingOperator.equals("+") || pendingOperator.equals("−"))) {
+                value = accumulator.multiply(value).divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP);
+            } else {
+                value = value.divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP);
+            }
+            entry = value.stripTrailingZeros().toPlainString();
+            startNewEntry = false;
+        }
+
+        private void operator(String operator) {
+            BigDecimal current = number();
+            if (accumulator != null && pendingOperator != null && !startNewEntry) {
+                accumulator = calculate(accumulator, pendingOperator, current);
+                entry = accumulator.stripTrailingZeros().toPlainString();
+            } else if (accumulator == null) {
+                accumulator = current;
+            }
+            pendingOperator = operator;
+            startNewEntry = true;
+            expressionView.setText(formatCalculatorNumber(accumulator) + " " + operator);
+        }
+
+        private void equals() {
+            if (accumulator == null || pendingOperator == null) return;
+            BigDecimal right = number();
+            BigDecimal left = accumulator;
+            String op = pendingOperator;
+            BigDecimal answer = calculate(left, op, right);
+            expressionView.setText(formatCalculatorNumber(left) + " " + op + " "
+                    + formatCalculatorNumber(right) + " =");
+            entry = answer.stripTrailingZeros().toPlainString();
+            accumulator = null;
+            pendingOperator = null;
+            startNewEntry = true;
+        }
+
+        private BigDecimal calculate(BigDecimal left, String operator, BigDecimal right) {
+            switch (operator) {
+                case "+": return left.add(right);
+                case "−": return left.subtract(right);
+                case "×": return left.multiply(right);
+                case "÷":
+                    if (right.compareTo(BigDecimal.ZERO) == 0) {
+                        throw new ArithmeticException("division by zero");
+                    }
+                    return left.divide(right, 8, RoundingMode.HALF_UP).stripTrailingZeros();
+                default: return right;
+            }
+        }
+
+        private BigDecimal number() {
+            String safe = entry;
+            if (safe.equals("-") || safe.equals("-0.")) safe = "0";
+            if (safe.endsWith(".")) safe = safe.substring(0, safe.length() - 1);
+            if (safe.isEmpty()) safe = "0";
+            return new BigDecimal(safe);
+        }
+
+        private void clear() {
+            entry = "0";
+            accumulator = null;
+            pendingOperator = null;
+            startNewEntry = true;
+            error = false;
+            expressionView.setText("Hisoblashni boshlang");
+        }
+
+        private void refresh() {
+            if (error) {
+                resultView.setText("Xatolik");
+            } else {
+                resultView.setText(formatCalculatorEntry(entry));
+            }
+        }
+
+        BigDecimal getValue() {
+            if (error) return null;
+            try {
+                if (accumulator != null && pendingOperator != null) return number();
+                return number();
+            } catch (NumberFormatException exception) {
+                return null;
+            }
+        }
+
+        private String formatCalculatorEntry(String value) {
+            try {
+                return formatCalculatorNumber(new BigDecimal(value));
+            } catch (NumberFormatException exception) {
+                return value;
+            }
+        }
+
+        private String formatCalculatorNumber(BigDecimal value) {
+            BigDecimal normalized = value.stripTrailingZeros();
+            String plain = normalized.toPlainString();
+            boolean negative = plain.startsWith("-");
+            if (negative) plain = plain.substring(1);
+            int point = plain.indexOf('.');
+            String integerPart = point >= 0 ? plain.substring(0, point) : plain;
+            String decimalPart = point >= 0 ? plain.substring(point) : "";
+            StringBuilder grouped = new StringBuilder();
+            for (int i = 0; i < integerPart.length(); i++) {
+                if (i > 0 && (integerPart.length() - i) % 3 == 0) grouped.append(' ');
+                grouped.append(integerPart.charAt(i));
+            }
+            return (negative ? "−" : "") + grouped + decimalPart;
+        }
     }
 
     private void clearInputs() {
@@ -604,7 +925,6 @@ public class MainActivity extends Activity {
         return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
     }
 
-    /** Soft ambient glow artwork painted behind the translucent panels. */
     private class GlassBackdropView extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
@@ -641,7 +961,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Translucent rounded panel with a layered highlight and a bright glass rim. */
     private class GlassPanel extends LinearLayout {
         private final float radiusDp;
         private final boolean emerald;
