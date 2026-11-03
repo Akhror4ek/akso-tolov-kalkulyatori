@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "source": "AKSO",
+  "items": [
+    {
+      "id": "customer_first",
+      "title": "Birinchi taassurot ishonch uyg‘otadi",
+      "body": "Mijoz do‘konga kirganda samimiy salom bering va unga e’tibor qarating. Darhol mahsulotni tavsiya qilishga shoshilmang. Avval nima izlayotganini so‘rang, ehtiyojini tinglang. O‘zini hurmat qilingan mijoz deb his qilgan odam xarid haqida xotirjamroq qaror qiladi.",
+      "imageUrl": "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?auto=format&fit=crop&fm=jpg&w=1000&q=76",
+      "credit": "Unsplash"
+    },
+    {
+      "id": "value_not_price",
+      "title": "Faqat narxni emas, foydani tushuntiring",
+      "body": "Mahsulotning narxini aytish bilan cheklanib qolmang. Uning xaridorga qanday qulaylik berishini, vaqtini yoki xarajatini qanday tejashini sodda misol bilan ko‘rsating. Mijoz mahsulot qiymatini tushunsa, narxni baholashi ham osonlashadi.",
+      "imageUrl": "https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&fm=jpg&w=1000&q=76",
+      "credit": "Unsplash"
+    },
+    {
+      "id": "listen_customer",
+      "title": "Mijozni tinglash — yaxshi savdoning asosi",
+      "body": "Ochiq savollar bering: “Siz uchun qaysi xususiyat muhim?”, “Qanday foydalanmoqchisiz?”. Javobni bo‘lmasdan tinglang. Shunda keraksiz mahsulotlarni ko‘rsatmay, mijozga mos variantni tezroq topasiz.",
+      "imageUrl": "https://images.unsplash.com/photo-1556761175-b413da4baf72?auto=format&fit=crop&fm=jpg&w=1000&q=76",
+      "credit": "Unsplash"
+    },
+    {
+      "id": "alternatives",
+      "title": "Har doim uchta variant ko‘rsating",
+      "body": "Mijozga imkon qadar uch xil taklif bering: tejamkor, o‘rtacha va imkoniyati kengroq variant. Farqlarini qisqa tushuntiring. Bu xaridorga tanlash imkonini beradi va suhbatni faqat “qimmat” yoki “arzon” degan savol atrofida aylantirmaydi.",
+      "imageUrl": "https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&fm=jpg&w=1000&q=76",
+      "credit": "Unsplash"
+    },
+    {
+      "id": "payment_convenience",
+      "title": "To‘lov qulayligini aniq tushuntiring",
+      "body": "Bo‘lib to‘lashni taklif qilganda boshlang‘ich to‘lovni, muddatni va har oy to‘lanadigan summani alohida ayting. Jami to‘lovni ham yashirmang. Raqamlar tushunarli bo‘lsa, mijoz o‘z budjetiga mos qaror qabul qiladi.",
+      "imageUrl": "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?auto=format&fit=crop&fm=jpg&w=1000&q=76",
+      "credit": "Unsplash"
+    },
+    {
+      "id": "after_sale",
+      "title": "Savdo tugagach ham mijoz bilan aloqa uzilmasin",
+      "body": "Xariddan keyin mahsulotdan foydalanish bo‘yicha qisqa tavsiya bering va murojaat uchun aloqa yo‘lini eslatib qo‘ying. Muammo bo‘lsa, yordam berishga tayyor ekaningizni bildiring. Yaxshi xizmat takroriy xarid va tavsiyalar uchun mustahkam asos yaratadi.",
+      "imageUrl": "https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&fm=jpg&w=1000&q=76",
+      "credit": "Unsplash"
+    },
+    {
+      "id": "clear_display",
+      "title": "Mahsulot ma’lumotlarini ko‘rinadigan qiling",
+      "body": "Narx, asosiy xususiyat va to‘lov shartlarini aniq ko‘rsating. Noaniq yoki chalkash yozuvlar mijozda shubha uyg‘otadi. Tartibli vitrinalar va tushunarli narx yorliqlari sotuvchining vaqtini ham tejaydi.",
+      "imageUrl": "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&fm=jpg&w=1000&q=76",
+      "credit": "Unsplash"
+    },
+    {
+      "id": "trust",
+      "title": "Va’dani aniq bering, ortiqcha va’da bermang",
+      "body": "Mahsulot mavjudligi, yetkazib berish muddati, kafolat va to‘lov shartlari haqida faqat tekshirilgan ma’lumotni ayting. Bajarib bo‘lmaydigan va’da qisqa muddatda savdo olib kelishi mumkin, lekin uzoq muddatli ishonchga zarar yetkazadi.",
+      "imageUrl": "https://images.unsplash.com/photo-1556761175-b413da4baf72?auto=format&fit=crop&fm=jpg&w=1000&q=76",
+      "credit": "Unsplash"
+    }
+  ]
+}
