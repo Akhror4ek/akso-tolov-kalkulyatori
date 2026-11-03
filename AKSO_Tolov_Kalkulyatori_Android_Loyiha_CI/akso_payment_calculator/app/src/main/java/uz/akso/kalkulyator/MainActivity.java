@@ -435,4 +435,189 @@ public class MainActivity extends Activity {
                 int newCursor = 0;
                 int digitsSeen = 0;
                 while (newCursor < formatted.length() && digitsSeen < digitsBeforeCursor) {
-                    if (Character.i
+                                        if (Character.isDigit(formatted.charAt(newCursor))) digitsSeen++;
+                    newCursor++;
+                }
+                input.setSelection(Math.min(newCursor, formatted.length()));
+                formatting = false;
+            }
+
+            @Override public void afterTextChanged(Editable s) { }
+        });
+        return input;
+    }
+
+    private GradientDrawable amountFieldBackground() {
+        GradientDrawable d = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{0xCFFFFFFF, 0xAFFFFFFF});
+        d.setCornerRadius(dp(13));
+        d.setStroke(dp(1), 0xBFFFFFFF);
+        return d;
+    }
+
+    private GradientDrawable glassTintBackground() {
+        GradientDrawable d = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{0xCDEBFAF0, 0xA8D9F0E2});
+        d.setCornerRadius(dp(14));
+        d.setStroke(dp(1), 0xDFFFFFFF);
+        return d;
+    }
+
+    private GradientDrawable glassButtonBackground(boolean primary) {
+        int[] colors = primary
+                ? new int[]{0xF20DBD5B, 0xE8078B45}
+                : new int[]{0xEFFFFFFF, 0xBFEAF5EF};
+        GradientDrawable d = new GradientDrawable(GradientDrawable.Orientation.TL_BR, colors);
+        d.setCornerRadius(dp(15));
+        d.setStroke(dp(1), primary ? 0xBFFFFFFF : 0xEFFFFFFF);
+        return d;
+    }
+
+    private TextView fieldLabel(String value) {
+        TextView label = text(value, 10, TEXT, true);
+        label.setPadding(dp(1), 0, 0, dp(5));
+        return label;
+    }
+
+    private TextView text(String value, float size, int color, boolean bold) {
+        TextView view = new TextView(this);
+        view.setText(value);
+        view.setTextSize(size);
+        view.setTextColor(color);
+        view.setTypeface(Typeface.DEFAULT, bold ? Typeface.BOLD : Typeface.NORMAL);
+        view.setGravity(Gravity.CENTER_VERTICAL);
+        return view;
+    }
+
+    private GradientDrawable rounded(int color, int radius, int strokeColor, int strokeWidth) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(color);
+        drawable.setCornerRadius(radius);
+        if (strokeWidth > 0) drawable.setStroke(dp(strokeWidth), strokeColor);
+        return drawable;
+    }
+
+    private void addSpace(LinearLayout parent, int heightDp) {
+        View spacer = new View(this);
+        parent.addView(spacer, new LinearLayout.LayoutParams(1, dp(heightDp)));
+    }
+
+    private LinearLayout.LayoutParams matchWrap() {
+        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+    }
+
+    private LinearLayout.LayoutParams wrapWrap() {
+        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+    }
+
+    private int dp(float value) {
+        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    /** Soft ambient glow artwork painted behind the translucent panels. */
+    private class GlassBackdropView extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        GlassBackdropView(Context context) {
+            super(context);
+            setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        }
+
+        @Override protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float w = getWidth();
+            float h = getHeight();
+
+            paint.setShader(new LinearGradient(0, 0, w * 0.35f, h,
+                    new int[]{0xFFF3FBF6, 0xFFE7F5ED, 0xFFE2F1E9},
+                    null, Shader.TileMode.CLAMP));
+            canvas.drawRect(0, 0, w, h, paint);
+            paint.setShader(null);
+
+            drawGlow(canvas, w * 0.90f, h * 0.10f, w * 0.72f,
+                    new int[]{0x665EE59A, 0x2255C982, 0x0055C982});
+            drawGlow(canvas, w * 0.05f, h * 0.46f, w * 0.62f,
+                    new int[]{0x55FFFFFF, 0x1FFFFFFF, 0x00FFFFFF});
+            drawGlow(canvas, w * 0.83f, h * 0.80f, w * 0.78f,
+                    new int[]{0x4438C979, 0x1A8FD1AA, 0x008FD1AA});
+            drawGlow(canvas, w * 0.15f, h * 0.95f, w * 0.52f,
+                    new int[]{0x33FFFFFF, 0x11FFFFFF, 0x00FFFFFF});
+        }
+
+        private void drawGlow(Canvas canvas, float x, float y, float radius, int[] colors) {
+            paint.setShader(new RadialGradient(x, y, radius, colors, null, Shader.TileMode.CLAMP));
+            canvas.drawCircle(x, y, radius, paint);
+            paint.setShader(null);
+        }
+    }
+
+    /** Translucent rounded panel with a layered highlight and a bright glass rim. */
+    private class GlassPanel extends LinearLayout {
+        private final float radiusDp;
+        private final boolean emerald;
+        private final Paint sheen = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint rim = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        GlassPanel(Context context, boolean emerald, float radiusDp) {
+            super(context);
+            this.emerald = emerald;
+            this.radiusDp = radiusDp;
+            setWillNotDraw(false);
+            setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+            setBackground(makeBackground());
+            setElevation(dp(5));
+            setClipToOutline(true);
+        }
+
+        private GradientDrawable makeBackground() {
+            GradientDrawable d;
+            if (emerald) {
+                d = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                        new int[]{0xF20CC05A, 0xED079A49, 0xF006803C});
+                d.setStroke(dp(1), 0xBFFFFFFF);
+            } else {
+                d = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                        new int[]{0xCFFFFFFF, 0xAFFFFFFF, 0xBFEFF8F2});
+                d.setStroke(dp(1), 0xEFFFFFFF);
+            }
+            d.setCornerRadius(dp(radiusDp));
+            return d;
+        }
+
+        @Override protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float w = getWidth();
+            float h = getHeight();
+            float r = dp(radiusDp);
+
+            Path clip = new Path();
+            clip.addRoundRect(0, 0, w, h, r, r, Path.Direction.CW);
+            int save = canvas.save();
+            canvas.clipPath(clip);
+
+            sheen.setShader(new LinearGradient(0, 0, 0, h * 0.78f,
+                    emerald
+                            ? new int[]{0x44FFFFFF, 0x13FFFFFF, 0x00FFFFFF}
+                            : new int[]{0x66FFFFFF, 0x24FFFFFF, 0x00FFFFFF},
+                    null, Shader.TileMode.CLAMP));
+            canvas.drawRect(0, 0, w, h * 0.78f, sheen);
+            sheen.setShader(null);
+
+            sheen.setShader(new RadialGradient(w * 0.12f, h * 0.04f, w * 0.72f,
+                    new int[]{emerald ? 0x38FFFFFF : 0x42FFFFFF, 0x00FFFFFF},
+                    null, Shader.TileMode.CLAMP));
+            canvas.drawRect(0, 0, w, h * 0.55f, sheen);
+            sheen.setShader(null);
+
+            rim.setStyle(Paint.Style.STROKE);
+            rim.setStrokeWidth(dp(1));
+            rim.setColor(emerald ? 0x88FFFFFF : 0xBFFFFFFF);
+            canvas.drawPath(clip, rim);
+            rim.setStyle(Paint.Style.FILL);
+
+            canvas.restoreToCount(save);
+        }
+    }
+}
