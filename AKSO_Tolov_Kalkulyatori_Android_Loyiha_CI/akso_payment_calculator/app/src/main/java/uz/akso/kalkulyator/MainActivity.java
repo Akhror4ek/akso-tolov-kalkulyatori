@@ -85,7 +85,7 @@ public class MainActivity extends Activity {
     private LinearLayout salesCalendarGrid;
     private EditText salesEntryInput;
 
-    // Guards the in-place thousands-separator edit from triggering duplicate calculations.
+    // Guards formatting applied only after an amount field loses focus.
     private boolean formattingAmount = false;
 
     private BigDecimal lastProduct = BigDecimal.ZERO;
@@ -1471,97 +1471,16 @@ public class MainActivity extends Activity {
         input.setPadding(dp(11), 0, dp(11), 0);
         input.setBackground(amountFieldBackground());
 
-        // Format after the current keyboard event has completed. This avoids
-        // changing the Editable inside the IME's active TextWatcher callback.
-        input.addTextChangedListener(new TextWatcher() {
-            private boolean formattingPosted = false;
-
-            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
-
-            @Override public void afterTextChanged(Editable editable) {
-                if (formattingAmount || formattingPosted) return;
-                formattingPosted = true;
-                input.post(() -> {
-                    formattingPosted = false;
-                    if (formattingAmount || !input.isAttachedToWindow()) return;
-                    formatAmountInputInPlace(input);
-                });
-            }
-        });
-
+        // CRASH-SAFE INPUT POLICY:
+        // Never rewrite the EditText while the user is typing or while the
+        // keyboard's InputMethodEditor may be composing text. Thousands
+        // separators are inserted only after focus leaves this field.
+        // The main calculator still recalculates from the raw digits on every
+        // keystroke; readAmount() ignores all non-digit characters.
         input.setOnFocusChangeListener((view, hasFocus) -> {
             if (!hasFocus) normalizeAmountInput(input);
         });
         return input;
-    }
-
-    /** Adds thousands separators without replacing the EditText's text object. */
-    private void formatAmountInputInPlace(EditText input) {
-        if (input == null || input.getText() == null) return;
-
-        Editable editable = input.getText();
-        int oldCursor = input.getSelectionStart();
-        if (oldCursor < 0) oldCursor = editable.length();
-        oldCursor = Math.min(oldCursor, editable.length());
-
-        StringBuilder digits = new StringBuilder(editable.length());
-        int digitsBeforeCursor = 0;
-        for (int i = 0; i < editable.length(); i++) {
-            char ch = editable.charAt(i);
-            if (ch >= '0' && ch <= '9') {
-                digits.append(ch);
-                if (i < oldCursor) digitsBeforeCursor++;
-            }
-        }
-
-        // Keep a genuinely empty field empty, including after the final digit is deleted.
-        if (digits.length() == 0) {
-            if (editable.length() > 0) {
-                formattingAmount = true;
-                try {
-                    editable.clear();
-                    if (input.hasFocus()) input.setSelection(0);
-                } finally {
-                    formattingAmount = false;
-                }
-            }
-            return;
-        }
-
-        StringBuilder formatted = new StringBuilder(digits.length() + digits.length() / 3);
-        int firstGroup = digits.length() % 3;
-        if (firstGroup == 0) firstGroup = 3;
-        for (int i = 0; i < digits.length(); i++) {
-            if (i > 0 && (i - firstGroup) % 3 == 0) formatted.append(' ');
-            formatted.append(digits.charAt(i));
-        }
-
-        if (formatted.toString().contentEquals(editable)) return;
-
-        // Restore the caret by counting digits before its previous position.
-        int newCursor = 0;
-        int digitsSeen = 0;
-        while (newCursor < formatted.length() && digitsSeen < digitsBeforeCursor) {
-            if (formatted.charAt(newCursor) >= '0' && formatted.charAt(newCursor) <= '9') {
-                digitsSeen++;
-            }
-            newCursor++;
-        }
-        // Preserve the caret after a grouping space when it was there before.
-        if (oldCursor > 0 && editable.charAt(oldCursor - 1) == ' '
-                && newCursor < formatted.length() && formatted.charAt(newCursor) == ' ') {
-            newCursor++;
-        }
-        newCursor = Math.min(newCursor, formatted.length());
-
-        formattingAmount = true;
-        try {
-            editable.replace(0, editable.length(), formatted);
-            if (input.hasFocus()) input.setSelection(newCursor);
-        } finally {
-            formattingAmount = false;
-        }
     }
 
     private void normalizeAmountInput(EditText input) {
