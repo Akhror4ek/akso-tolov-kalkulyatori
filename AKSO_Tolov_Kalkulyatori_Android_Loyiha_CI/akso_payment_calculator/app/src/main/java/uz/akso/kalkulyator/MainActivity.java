@@ -109,6 +109,8 @@ public class MainActivity extends Activity {
         setContentView(buildScreen());
         productInput.setText("1000000");
         upfrontInput.setText("0");
+        normalizeAmountInput(productInput);
+        normalizeAmountInput(upfrontInput);
         recalculate();
     }
 
@@ -1469,76 +1471,55 @@ public class MainActivity extends Activity {
         input.setPadding(dp(11), 0, dp(11), 0);
         input.setBackground(amountFieldBackground());
 
-        input.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
-
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
-
-            @Override public void afterTextChanged(Editable editable) {
-                if (formattingAmount) return;
-
-                int cursor = input.getSelectionStart();
-                if (cursor < 0) cursor = editable.length();
-                cursor = Math.min(cursor, editable.length());
-
-                // Keep only ASCII digits. Avoid regular expressions and BigDecimal
-                // construction on every key press.
-                StringBuilder digits = new StringBuilder(editable.length());
-                int digitsBeforeCursor = 0;
-                for (int i = 0; i < editable.length(); i++) {
-                    char ch = editable.charAt(i);
-                    if (ch >= '0' && ch <= '9') {
-                        digits.append(ch);
-                        if (i < cursor) digitsBeforeCursor++;
-                    }
-                }
-
-                if (digits.length() == 0) {
-                    // If the user erased all digits, remove any leftover separator too.
-                    if (editable.length() > 0) {
-                        formattingAmount = true;
-                        try {
-                            editable.clear();
-                            input.setSelection(0);
-                        } finally {
-                            formattingAmount = false;
-                        }
-                    }
-                    return;
-                }
-
-                // Insert a space every three digits, working directly with the Editable.
-                StringBuilder formatted = new StringBuilder(digits.length() + digits.length() / 3);
-                int firstGroup = digits.length() % 3;
-                if (firstGroup == 0) firstGroup = 3;
-                for (int i = 0; i < digits.length(); i++) {
-                    if (i > 0 && (i - firstGroup) % 3 == 0) formatted.append(' ');
-                    formatted.append(digits.charAt(i));
-                }
-
-                if (formatted.toString().contentEquals(editable)) return;
-
-                // Restore the caret by digit position rather than raw character offset.
-                int newCursor = 0;
-                int digitsSeen = 0;
-                while (newCursor < formatted.length() && digitsSeen < digitsBeforeCursor) {
-                    if (formatted.charAt(newCursor) >= '0' && formatted.charAt(newCursor) <= '9') {
-                        digitsSeen++;
-                    }
-                    newCursor++;
-                }
-                newCursor = Math.min(newCursor, formatted.length());
-
-                formattingAmount = true;
-                try {
-                    editable.replace(0, editable.length(), formatted);
-                    input.setSelection(newCursor);
-                } finally {
-                    formattingAmount = false;
-                }
+        // Important: do not rewrite the Editable while the on-screen keyboard is
+        // composing text. Some Android keyboards crash when a TextWatcher changes
+        // the same Editable from inside afterTextChanged(). We format only after
+        // the user leaves the field, which keeps typing responsive and stable.
+        input.setOnFocusChangeListener((view, hasFocus) -> {
+            if (!hasFocus) {
+                normalizeAmountInput(input);
             }
         });
         return input;
+    }
+
+    private void normalizeAmountInput(EditText input) {
+        if (input == null || input.getText() == null) return;
+
+        Editable current = input.getText();
+        StringBuilder digits = new StringBuilder(current.length());
+        for (int i = 0; i < current.length(); i++) {
+            char ch = current.charAt(i);
+            if (ch >= '0' && ch <= '9') digits.append(ch);
+        }
+
+        // Keep an empty field empty so its hint remains visible.
+        if (digits.length() == 0) return;
+
+        String formatted;
+        try {
+            formatted = formatMoney(new BigDecimal(digits.toString()));
+        } catch (NumberFormatException exception) {
+            return;
+        }
+
+        if (formatted.contentEquals(current)) return;
+
+        formattingAmount = true;
+        try {
+            input.setText(formatted);
+            if (input.hasFocus()) {
+                input.setSelection(formatted.length());
+            }
+        } finally {
+            formattingAmount = false;
+        }
+
+        // The main input watcher skips recalculation while formattingAmount is true.
+        // Refresh the main calculator once, after the formatted value is committed.
+        if (input == productInput || input == upfrontInput) {
+            recalculate();
+        }
     }
 
     private GradientDrawable amountFieldBackground() {
