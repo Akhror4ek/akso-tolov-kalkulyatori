@@ -20,6 +20,7 @@ import android.os.Bundle;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
+import android.text.Selection;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
@@ -28,6 +29,7 @@ import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
+import android.view.inputmethod.BaseInputConnection;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -85,7 +87,7 @@ public class MainActivity extends Activity {
     private LinearLayout salesCalendarGrid;
     private EditText salesEntryInput;
 
-    // Guards formatting applied only after an amount field loses focus.
+    // Guards the short, deferred in-place formatting pass while the IME is idle.
     private boolean formattingAmount = false;
 
     private BigDecimal lastProduct = BigDecimal.ZERO;
@@ -1471,55 +1473,150 @@ public class MainActivity extends Activity {
         input.setPadding(dp(11), 0, dp(11), 0);
         input.setBackground(amountFieldBackground());
 
-        // CRASH-SAFE INPUT POLICY:
-        // Never rewrite the EditText while the user is typing or while the
-        // keyboard's InputMethodEditor may be composing text. Thousands
-        // separators are inserted only after focus leaves this field.
-        // The main calculator still recalculates from the raw digits on every
-        // keystroke; readAmount() ignores all non-digit characters.
+        // Live separators are applied on the next UI-loop turn, never inside
+        // the keyboard's active TextWatcher callback. This keeps the IME safe.
+        final boolean[] formattingQueued = {false};
+        input.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
+
+            @Override public void afterTextChanged(Editable editable) {
+                if (formattingAmount || formattingQueued[0]) return;
+                postLiveAmountFormatting(input, formattingQueued, 0);
+            }
+        });
+
+        // Final safety pass if the user moves away before the queued live pass runs.
         input.setOnFocusChangeListener((view, hasFocus) -> {
             if (!hasFocus) normalizeAmountInput(input);
         });
         return input;
     }
 
-    private void normalizeAmountInput(EditText input) {
-        if (input == null || input.getText() == null) return;
+    private void postLiveAmountFormatting(EditText input, boolean[] queued, int attempt) {
+        if (queued[0]) return;
+        queued[0] = true;
+        input.postDelayed(() -> {
+            queued[0] = false;
+            if (!input.isAttachedToWindow() || !input.hasFocus() || formattingAmount) return;
 
-        Editable current = input.getText();
-        StringBuilder digits = new StringBuilder(current.length());
-        for (int i = 0; i < current.length(); i++) {
-            char ch = current.charAt(i);
-            if (ch >= '0' && ch <= '9') digits.append(ch);
+            Editable editable = input.getText();
+            // Never alter text while Gboard/another IME marks a composing range.
+            // Retry briefly; if composition continues, the next keystroke or focus
+            // loss will schedule/perform the formatting instead.
+            if (BaseInputConnection.getComposingSpanStart(editable) >= 0
+                    || BaseInputConnection.getComposingSpanEnd(editable) >= 0) {
+                if (attempt < 6) postLiveAmountFormatting(input, queued, attempt + 1);
+                return;
+            }
+            formatAmountInputInPlace(input);
+        }, 35L);
+    }
+
+    /**
+     * Adds a space every three digits in the existing Editable. It runs only
+     * after the IME callback has returned and there is no active composing span.
+     */
+    private void formatAmountInputInPlace(EditText input) {
+        if (input == null || !input.isAttachedToWindow() || input.getText() == null
+                || formattingAmount) return;
+
+        Editable editable = input.getText();
+        if (BaseInputConnection.getComposingSpanStart(editable) >= 0
+                || BaseInputConnection.getComposingSpanEnd(editable) >= 0) return;
+
+        int oldStart = Selection.getSelectionStart(editable);
+        int oldEnd = Selection.getSelectionEnd(editable);
+        if (oldStart < 0) oldStart = input.getSelectionStart();
+        if (oldEnd < 0) oldEnd = oldStart;
+        if (oldStart < 0) oldStart = editable.length();
+        if (oldEnd < 0) oldEnd = oldStart;
+        oldStart = Math.min(oldStart, editable.length());
+        oldEnd = Math.min(oldEnd, editable.length());
+
+        StringBuilder digits = new StringBuilder(editable.length());
+        int digitsBeforeStart = 0;
+        int digitsBeforeEnd = 0;
+        for (int i = 0; i < editable.length(); i++) {
+            char ch = editable.charAt(i);
+            if (ch >= '0' && ch <= '9') {
+                digits.append(ch);
+                if (i < oldStart) digitsBeforeStart++;
+                if (i < oldEnd) digitsBeforeEnd++;
+            }
         }
 
-        // Keep an empty field empty so its hint remains visible.
-        if (digits.length() == 0) return;
-
-        String formatted;
-        try {
-            formatted = formatMoney(new BigDecimal(digits.toString()));
-        } catch (NumberFormatException exception) {
+        // Do not leave separator-only text when the user deletes every digit.
+        if (digits.length() == 0) {
+            if (editable.length() > 0) {
+                formattingAmount = true;
+                try {
+                    editable.clear();
+                    Selection.setSelection(editable, 0);
+                } finally {
+                    formattingAmount = false;
+                }
+            }
+            if (input == productInput || input == upfrontInput) recalculate();
             return;
         }
 
-        if (formatted.contentEquals(current)) return;
+        StringBuilder formatted = new StringBuilder(digits.length() + digits.length() / 3);
+        int firstGroup = digits.length() % 3;
+        if (firstGroup == 0) firstGroup = 3;
+        for (int i = 0; i < digits.length(); i++) {
+            if (i > 0 && (i - firstGroup) % 3 == 0) formatted.append(' ');
+            formatted.append(digits.charAt(i));
+        }
 
-        formattingAmount = true;
-        try {
-            input.setText(formatted);
-            if (input.hasFocus()) {
-                input.setSelection(formatted.length());
+        if (!formatted.toString().contentEquals(editable)) {
+            int newStart = mapDigitCursor(formatted, digitsBeforeStart);
+            int newEnd = mapDigitCursor(formatted, digitsBeforeEnd);
+
+            // Retain whether the caret was just after a grouping separator.
+            if (oldStart > 0 && oldStart <= editable.length()
+                    && editable.charAt(oldStart - 1) == ' '
+                    && newStart < formatted.length() && formatted.charAt(newStart) == ' ') {
+                newStart++;
             }
-        } finally {
-            formattingAmount = false;
+            if (oldEnd > 0 && oldEnd <= editable.length()
+                    && editable.charAt(oldEnd - 1) == ' '
+                    && newEnd < formatted.length() && formatted.charAt(newEnd) == ' ') {
+                newEnd++;
+            }
+            newStart = Math.min(newStart, formatted.length());
+            newEnd = Math.min(newEnd, formatted.length());
+
+            formattingAmount = true;
+            try {
+                editable.replace(0, editable.length(), formatted);
+                Selection.setSelection(editable, newStart, newEnd);
+            } finally {
+                formattingAmount = false;
+            }
         }
 
-        // The main input watcher skips recalculation while formattingAmount is true.
-        // Refresh the main calculator once, after the formatted value is committed.
-        if (input == productInput || input == upfrontInput) {
-            recalculate();
+        // Our main amount watcher intentionally skips the formatter's own edit.
+        // Recalculate once from the completed text instead.
+        if (input == productInput || input == upfrontInput) recalculate();
+    }
+
+    private int mapDigitCursor(CharSequence formatted, int digitCount) {
+        if (digitCount <= 0) return 0;
+        int position = 0;
+        int seen = 0;
+        while (position < formatted.length() && seen < digitCount) {
+            char ch = formatted.charAt(position++);
+            if (ch >= '0' && ch <= '9') seen++;
         }
+        return position;
+    }
+
+    private void normalizeAmountInput(EditText input) {
+        if (input == null || input.getText() == null) return;
+        // Reuse the same guarded formatter on focus loss. In this case the IME
+        // is no longer editing the field, so grouping can safely be finalized.
+        formatAmountInputInPlace(input);
     }
 
     private GradientDrawable amountFieldBackground() {
