@@ -2162,11 +2162,26 @@ public class MainActivity extends Activity {
         super.onDestroy();
     }
 
-    /** Intercepts only edge-origin horizontal swipes, leaving vertical scrolling untouched. */
+    /** Wide, ChatGPT-like left-swipe area; vertical scrolling remains unaffected. */
     private class DrawerHost extends FrameLayout {
         private float downX;
         private float downY;
         private boolean trackingGesture;
+
+        // Let the user begin the gesture well inside the screen, not just at its edge.
+        // The system Back gesture owns the extreme edge on many Android devices, so
+        // starting a little inward is more reliable. The active zone scales with the
+        // display and is capped to avoid swallowing horizontal gestures across the UI.
+        private int getDrawerGestureStartWidth() {
+            int screenWidth = getWidth() > 0
+                    ? getWidth() : getResources().getDisplayMetrics().widthPixels;
+            return Math.min(dp(240), Math.max(dp(140), screenWidth * 2 / 5));
+        }
+
+        // A deliberate but comfortable pull distance, similar to a navigation drawer.
+        private int getDrawerSwipeDistance() {
+            return dp(72);
+        }
 
         DrawerHost(Context context) { super(context); }
 
@@ -2177,13 +2192,14 @@ public class MainActivity extends Activity {
                     downX = event.getX();
                     downY = event.getY();
                     trackingGesture = drawerOverlay == null
-                            ? downX <= dp(30) : downX <= drawerWidthPx + dp(18);
+                            ? downX <= getDrawerGestureStartWidth()
+                            : downX <= drawerWidthPx + dp(24);
                     break;
                 case MotionEvent.ACTION_MOVE:
                     if (trackingGesture) {
                         float dx = event.getX() - downX;
                         float dy = event.getY() - downY;
-                        boolean horizontal = Math.abs(dx) > dp(48)
+                        boolean horizontal = Math.abs(dx) > getDrawerSwipeDistance()
                                 && Math.abs(dx) > Math.abs(dy) * 1.25f;
                         if (horizontal && ((drawerOverlay == null && dx > 0)
                                 || (drawerOverlay != null && dx < 0))) return true;
@@ -2202,8 +2218,11 @@ public class MainActivity extends Activity {
             if (event.getActionMasked() == MotionEvent.ACTION_UP) {
                 float dx = event.getX() - downX;
                 float dy = event.getY() - downY;
-                if (Math.abs(dx) > dp(48) && Math.abs(dx) > Math.abs(dy) * 1.25f) {
-                    if (drawerOverlay == null && dx > 0 && downX <= dp(30)) {
+                boolean horizontalPull = Math.abs(dx) > getDrawerSwipeDistance()
+                        && Math.abs(dx) > Math.abs(dy) * 1.25f;
+                if (horizontalPull) {
+                    if (drawerOverlay == null && dx > 0
+                            && downX <= getDrawerGestureStartWidth()) {
                         openSalesInspirationDrawer();
                     } else if (drawerOverlay != null && dx < 0) {
                         closeSalesInspirationDrawer();
