@@ -1513,15 +1513,16 @@ public class MainActivity extends Activity {
             if (!input.isAttachedToWindow() || !input.hasFocus() || formattingAmount) return;
 
             Editable editable = input.getText();
-            // Never alter text while Gboard/another IME marks a composing range.
-            // Retry briefly; if composition continues, the next keystroke or focus
-            // loss will schedule/perform the formatting instead.
-            if (BaseInputConnection.getComposingSpanStart(editable) >= 0
-                    || BaseInputConnection.getComposingSpanEnd(editable) >= 0) {
-                // Give Gboard up to 3.6 seconds to finish its active edit composition.
-                // Each keystroke restarts this queue, so grouping follows the latest text.
-                if (attempt < 80) postLiveAmountFormatting(input, queued, attempt + 1);
-                return;
+            if (editable == null) return;
+
+            // Amount fields accept digits only. Gboard may leave a composing span
+            // attached even though this is not word composition. Clear that span
+            // after the key event has finished, then format the same Editable.
+            // This is the reason live grouping was previously being skipped.
+            try {
+                BaseInputConnection.removeComposingSpans(editable);
+            } catch (RuntimeException ignored) {
+                // Continue: the formatter independently guards cursor offsets.
             }
             formatAmountInputInPlace(input);
         }, 45L);
@@ -1536,8 +1537,14 @@ public class MainActivity extends Activity {
                 || formattingAmount) return;
 
         Editable editable = input.getText();
-        if (BaseInputConnection.getComposingSpanStart(editable) >= 0
-                || BaseInputConnection.getComposingSpanEnd(editable) >= 0) return;
+        // Numeric input does not need composing text. Remove any IME composing
+        // marker before editing, otherwise some keyboards postpone this formatter
+        // forever and the grouping spaces never appear while the field is focused.
+        try {
+            BaseInputConnection.removeComposingSpans(editable);
+        } catch (RuntimeException ignored) {
+            // The actual text update below remains protected by bounds checks.
+        }
 
         int oldStart = Selection.getSelectionStart(editable);
         int oldEnd = Selection.getSelectionEnd(editable);
@@ -1629,17 +1636,18 @@ public class MainActivity extends Activity {
                 // final Editable. If an IME races this operation, retain the text edit.
                 try {
                     Selection.removeSelection(editable);
-                    if (input.hasFocus() && editable.length() == actualLength) {
-                        Selection.setSelection(editable,
-                                Math.min(safeStart, editable.length()),
-                                Math.min(safeEnd, editable.length()));
+                    if (input.hasFocus()) {
+                        int finalLength = editable.length();
+                        int finalStart = Math.max(0, Math.min(safeStart, finalLength));
+                        int finalEnd = Math.max(0, Math.min(safeEnd, finalLength));
+                        Selection.setSelection(editable, finalStart, finalEnd);
                     }
-                } catch (IndexOutOfBoundsException selectionError) {
+                } catch (RuntimeException selectionError) {
+                    // Cursor restoration is non-critical. Never crash the calculator
+                    // if an IME updates selection spans concurrently.
                     try {
                         Selection.removeSelection(editable);
-                    } catch (RuntimeException ignored) {
-                        // The amount text remains valid even if the IME rejects the caret.
-                    }
+                    } catch (RuntimeException ignored) { }
                 }
             } finally {
                 formattingAmount = false;
