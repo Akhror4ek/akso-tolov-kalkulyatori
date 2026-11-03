@@ -200,16 +200,6 @@ public class MainActivity extends Activity {
         attachInteractionFeedback(clearButton);
         clearButton.setOnClickListener(v -> clearInputs());
 
-        addSpace(page, 9);
-        Button salesButton = calculatorButton("KUNLIK SAVDO HISOBOTI", 11, false, true);
-        salesButton.setBackground(glassButtonBackground(false));
-        salesButton.setTextColor(DARK_GREEN);
-        salesButton.setElevation(dp(4));
-        page.addView(salesButton, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
-        attachInteractionFeedback(salesButton);
-        salesButton.setOnClickListener(v -> showDailySalesDialog());
-
         addSpace(page, 11);
         page.addView(buildDiscountCard(), matchWrap());
 
@@ -231,19 +221,28 @@ public class MainActivity extends Activity {
         brand.setLetterSpacing(0.18f);
         titleGroup.addView(brand, matchWrap());
 
-        TextView title = text("Bo‘lib to‘lash kalkulyatori", 16, Color.WHITE, true);
+        TextView title = text("Bo‘lib to‘lash kalkulyatori", 15, Color.WHITE, true);
         title.setPadding(0, dp(3), 0, 0);
         titleGroup.addView(title, matchWrap());
         header.addView(titleGroup, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        TextView subtitle = text("3 · 6 · 9 · 12 oy", 9, Color.WHITE, true);
+        TextView subtitle = text("3 · 6 · 9 · 12 oy", 8, Color.WHITE, true);
         subtitle.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         subtitle.setShadowLayer(dp(5), 0, dp(1), 0x55FFFFFF);
         header.addView(subtitle, wrapWrap());
 
+        // Compact daily-sales shortcut: same dimensions and glass style as Settings.
+        Button salesButton = calculatorButton("$", 16, false, true);
+        salesButton.setContentDescription("Kunlik savdo hisoboti");
+        LinearLayout.LayoutParams salesParams = new LinearLayout.LayoutParams(dp(32), dp(32));
+        salesParams.setMargins(dp(5), 0, 0, 0);
+        header.addView(salesButton, salesParams);
+        salesButton.setOnClickListener(v -> showDailySalesDialog());
+
         Button settingsButton = calculatorButton("⚙", 13, false, true);
+        settingsButton.setContentDescription("Sozlamalar");
         LinearLayout.LayoutParams settingsParams = new LinearLayout.LayoutParams(dp(32), dp(32));
-        settingsParams.setMargins(dp(6), 0, 0, 0);
+        settingsParams.setMargins(dp(5), 0, 0, 0);
         header.addView(settingsButton, settingsParams);
         settingsButton.setOnClickListener(v -> showSettingsDialog());
 
