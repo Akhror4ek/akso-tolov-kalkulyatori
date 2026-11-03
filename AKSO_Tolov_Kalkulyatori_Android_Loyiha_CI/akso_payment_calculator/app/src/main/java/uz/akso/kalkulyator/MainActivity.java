@@ -268,7 +268,33 @@ public class MainActivity extends Activity {
         GlassPanel header = new GlassPanel(this, true, 20);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(16), dp(11), dp(15), dp(11));
+        header.setPadding(dp(11), dp(11), dp(15), dp(11));
+
+        // Always-visible drawer shortcut, styled as a circular Liquid Glass control.
+        Button drawerMenuButton = new Button(this);
+        drawerMenuButton.setText("☰");
+        drawerMenuButton.setTextSize(16);
+        drawerMenuButton.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        drawerMenuButton.setAllCaps(false);
+        drawerMenuButton.setMinHeight(0);
+        drawerMenuButton.setMinimumHeight(0);
+        drawerMenuButton.setPadding(0, 0, 0, dp(1));
+        drawerMenuButton.setTextColor(darkMode ? Color.rgb(211, 250, 227) : DARK_GREEN);
+        GradientDrawable drawerMenuBackground = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                darkMode
+                        ? new int[]{0xE83C624D, 0xD51D392A}
+                        : new int[]{0xF2FFFFFF, 0xCDE1F5E8});
+        drawerMenuBackground.setShape(GradientDrawable.OVAL);
+        drawerMenuBackground.setStroke(dp(1), darkMode ? 0xAFFFFFFF : 0xDFFFFFFF);
+        drawerMenuButton.setBackground(drawerMenuBackground);
+        drawerMenuButton.setElevation(dp(4));
+        drawerMenuButton.setContentDescription("Savdo ilhomi yon panelini ochish");
+        LinearLayout.LayoutParams drawerMenuParams = new LinearLayout.LayoutParams(dp(34), dp(34));
+        drawerMenuParams.setMargins(0, 0, dp(7), 0);
+        header.addView(drawerMenuButton, drawerMenuParams);
+        attachInteractionFeedback(drawerMenuButton);
+        drawerMenuButton.setOnClickListener(v -> openSalesInspirationDrawer());
 
         LinearLayout titleGroup = new LinearLayout(this);
         titleGroup.setOrientation(LinearLayout.VERTICAL);
