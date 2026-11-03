@@ -1552,7 +1552,14 @@ public class MainActivity extends Activity {
                 formattingAmount = true;
                 try {
                     editable.clear();
-                    Selection.setSelection(editable, 0);
+                    if (input.hasFocus() && editable.length() == 0) {
+                        try {
+                            Selection.removeSelection(editable);
+                            Selection.setSelection(editable, 0);
+                        } catch (IndexOutOfBoundsException ignored) {
+                            // An IME may still be updating selection spans; an empty field is valid.
+                        }
+                    }
                 } finally {
                     formattingAmount = false;
                 }
@@ -1590,7 +1597,32 @@ public class MainActivity extends Activity {
             formattingAmount = true;
             try {
                 editable.replace(0, editable.length(), formatted);
-                Selection.setSelection(editable, newStart, newEnd);
+
+                // IMPORTANT: use the actual Editable length AFTER replacement.
+                // InputFilters/IME spans can make it shorter than the StringBuilder.
+                int actualLength = editable.length();
+                int safeStart = Math.max(0, Math.min(newStart, actualLength));
+                int safeEnd = Math.max(0, Math.min(newEnd, actualLength));
+                if (safeStart > safeEnd) {
+                    int swap = safeStart;
+                    safeStart = safeEnd;
+                    safeEnd = swap;
+                }
+
+                // Drop stale selection spans, then restore only in-range positions.
+                // If an IME still changes the Editable unexpectedly, never crash the app.
+                try {
+                    Selection.removeSelection(editable);
+                    if (input.hasFocus()) {
+                        Selection.setSelection(editable, safeStart, safeEnd);
+                    }
+                } catch (IndexOutOfBoundsException selectionError) {
+                    try {
+                        Selection.removeSelection(editable);
+                    } catch (RuntimeException ignored) {
+                        // Keep the edit even if the keyboard has invalidated selection spans.
+                    }
+                }
             } finally {
                 formattingAmount = false;
             }
