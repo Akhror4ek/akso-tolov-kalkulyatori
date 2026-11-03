@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
@@ -17,6 +19,8 @@ import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
@@ -34,16 +38,40 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.BufferedInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Locale;
+import java.util.concurrent.TimeUnit;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import androidx.work.BackoffPolicy;
+import androidx.work.Constraints;
+import androidx.work.ExistingPeriodicWorkPolicy;
+import androidx.work.ExistingWorkPolicy;
+import androidx.work.NetworkType;
+import androidx.work.OneTimeWorkRequest;
+import androidx.work.PeriodicWorkRequest;
+import androidx.work.WorkManager;
+import androidx.work.Worker;
+import androidx.work.WorkerParameters;
 
 /** AKSO Liquid Glass calculator with persistent dark mode and tactile controls. */
 public class MainActivity extends Activity {
@@ -87,6 +115,23 @@ public class MainActivity extends Activity {
     private LinearLayout salesCalendarGrid;
     private EditText salesEntryInput;
 
+    // Offline-cached sales inspiration drawer.
+    private DrawerHost drawerHost;
+    private ScrollView mainScrollView;
+    private FrameLayout drawerOverlay;
+    private View drawerScrim;
+    private View drawerPanel;
+    private ImageView drawerHeroImage;
+    private TextView drawerImageFallback;
+    private TextView drawerArticleTitle;
+    private TextView drawerArticleBody;
+    private TextView drawerUpdateLabel;
+    private int drawerWidthPx;
+    private final Handler drawerHandler = new Handler(Looper.getMainLooper());
+    private Runnable drawerHourlyRefresh;
+    private Runnable drawerCachePoll;
+    private int drawerCachePollAttempts;
+
     // Guards the short, deferred in-place formatting pass while the IME is idle.
     private boolean formattingAmount = false;
 
@@ -106,6 +151,7 @@ public class MainActivity extends Activity {
         darkMode = preferences.getBoolean("dark_mode", false);
         soundEnabled = preferences.getBoolean("sound_enabled", true);
         vibrationEnabled = preferences.getBoolean("vibration_enabled", true);
+        scheduleSalesContentRefresh();
         applyThemePalette();
         applySystemBarTheme();
         setContentView(buildScreen());
@@ -117,7 +163,8 @@ public class MainActivity extends Activity {
     }
 
     private View buildScreen() {
-        FrameLayout root = new FrameLayout(this);
+        DrawerHost root = new DrawerHost(this);
+        drawerHost = root;
         root.setBackgroundColor(PAGE);
 
         GlassBackdropView backdrop = new GlassBackdropView(this);
@@ -125,6 +172,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         ScrollView scroll = new ScrollView(this);
+        mainScrollView = scroll;
         scroll.setFillViewport(true);
         scroll.setBackgroundColor(Color.TRANSPARENT);
         scroll.setVerticalScrollBarEnabled(false);
@@ -1811,4 +1859,480 @@ public class MainActivity extends Activity {
             canvas.restoreToCount(save);
         }
     }
+    // ================== AKSO SAVDO ILHOMI DRAWER ==================
+
+    private static final String SALES_FEED_PREFS = "akso_sales_inspiration";
+    private static final String SALES_FEED_KEY = "feed_json";
+    private static final String SALES_FEED_UPDATED_KEY = "feed_updated";
+    private static final String SALES_FEED_URL =
+            "https://raw.githubusercontent.com/Akhror4ek/akso-tolov-kalkulyatori/main/akso_sales_feed.json";
+
+    private static String defaultSalesFeedJson() {
+        return "{\n  \"version\": 1,\n  \"source\": \"AKSO\",\n  \"items\": [\n    {\n      \"id\": \"customer_first\",\n      \"title\": \"Birinchi taassurot ishonch uyg‘otadi\",\n      \"body\": \"Mijoz do‘konga kirganda samimiy salom bering va unga e’tibor qarating. Darhol mahsulotni tavsiya qilishga shoshilmang. Avval nima izlayotganini so‘rang, ehtiyojini tinglang. O‘zini hurmat qilingan mijoz deb his qilgan odam xarid haqida xotirjamroq qaror qiladi.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"value_not_price\",\n      \"title\": \"Faqat narxni emas, foydani tushuntiring\",\n      \"body\": \"Mahsulotning narxini aytish bilan cheklanib qolmang. Uning xaridorga qanday qulaylik berishini, vaqtini yoki xarajatini qanday tejashini sodda misol bilan ko‘rsating. Mijoz mahsulot qiymatini tushunsa, narxni baholashi ham osonlashadi.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"listen_customer\",\n      \"title\": \"Mijozni tinglash — yaxshi savdoning asosi\",\n      \"body\": \"Ochiq savollar bering: “Siz uchun qaysi xususiyat muhim?”, “Qanday foydalanmoqchisiz?”. Javobni bo‘lmasdan tinglang. Shunda keraksiz mahsulotlarni ko‘rsatmay, mijozga mos variantni tezroq topasiz.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1556761175-b413da4baf72?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"alternatives\",\n      \"title\": \"Har doim uchta variant ko‘rsating\",\n      \"body\": \"Mijozga imkon qadar uch xil taklif bering: tejamkor, o‘rtacha va imkoniyati kengroq variant. Farqlarini qisqa tushuntiring. Bu xaridorga tanlash imkonini beradi va suhbatni faqat “qimmat” yoki “arzon” degan savol atrofida aylantirmaydi.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"payment_convenience\",\n      \"title\": \"To‘lov qulayligini aniq tushuntiring\",\n      \"body\": \"Bo‘lib to‘lashni taklif qilganda boshlang‘ich to‘lovni, muddatni va har oy to‘lanadigan summani alohida ayting. Jami to‘lovni ham yashirmang. Raqamlar tushunarli bo‘lsa, mijoz o‘z budjetiga mos qaror qabul qiladi.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"after_sale\",\n      \"title\": \"Savdo tugagach ham mijoz bilan aloqa uzilmasin\",\n      \"body\": \"Xariddan keyin mahsulotdan foydalanish bo‘yicha qisqa tavsiya bering va murojaat uchun aloqa yo‘lini eslatib qo‘ying. Muammo bo‘lsa, yordam berishga tayyor ekaningizni bildiring. Yaxshi xizmat takroriy xarid va tavsiyalar uchun mustahkam asos yaratadi.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"clear_display\",\n      \"title\": \"Mahsulot ma’lumotlarini ko‘rinadigan qiling\",\n      \"body\": \"Narx, asosiy xususiyat va to‘lov shartlarini aniq ko‘rsating. Noaniq yoki chalkash yozuvlar mijozda shubha uyg‘otadi. Tartibli vitrinalar va tushunarli narx yorliqlari sotuvchining vaqtini ham tejaydi.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"trust\",\n      \"title\": \"Va’dani aniq bering, ortiqcha va’da bermang\",\n      \"body\": \"Mahsulot mavjudligi, yetkazib berish muddati, kafolat va to‘lov shartlari haqida faqat tekshirilgan ma’lumotni ayting. Bajarib bo‘lmaydigan va’da qisqa muddatda savdo olib kelishi mumkin, lekin uzoq muddatli ishonchga zarar yetkazadi.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1556761175-b413da4baf72?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    }\n  ]\n}";
+    }
+
+    /** Schedules one initial sync plus a periodic network-constrained background refresh. */
+    private void scheduleSalesContentRefresh() {
+        Constraints constraints = new Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build();
+
+        PeriodicWorkRequest periodic = new PeriodicWorkRequest.Builder(
+                SalesContentWorker.class, 1, TimeUnit.HOURS)
+                .setConstraints(constraints)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                .build();
+        WorkManager.getInstance(getApplicationContext()).enqueueUniquePeriodicWork(
+                "akso_hourly_sales_inspiration", ExistingPeriodicWorkPolicy.KEEP, periodic);
+
+        OneTimeWorkRequest initial = new OneTimeWorkRequest.Builder(SalesContentWorker.class)
+                .setConstraints(constraints)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                .build();
+        WorkManager.getInstance(getApplicationContext()).enqueueUniqueWork(
+                "akso_sales_inspiration_one_time_sync", ExistingWorkPolicy.KEEP, initial);
+    }
+
+    private void openSalesInspirationDrawer() {
+        if (drawerOverlay != null || drawerHost == null) return;
+
+        int screenWidth = getResources().getDisplayMetrics().widthPixels;
+        drawerWidthPx = Math.min(screenWidth, Math.round(screenWidth * 0.85f));
+
+        drawerOverlay = new FrameLayout(this);
+        drawerOverlay.setLayoutParams(new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        drawerScrim = new View(this);
+        drawerScrim.setBackgroundColor(darkMode ? 0xC5000000 : 0x79071910);
+        drawerScrim.setAlpha(0f);
+        drawerScrim.setOnClickListener(v -> closeSalesInspirationDrawer());
+        drawerOverlay.addView(drawerScrim, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        GlassPanel panel = new GlassPanel(this, false, 22);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(14), dp(13), dp(14), dp(14));
+        panel.setElevation(dp(22));
+        drawerPanel = panel;
+
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView heading = text("AKSO  /  SAVDO ILHOMI", 11, DARK_GREEN, true);
+        heading.setLetterSpacing(0.08f);
+        titleRow.addView(heading, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        Button closeButton = calculatorButton("✕", 12, false, true);
+        titleRow.addView(closeButton, new LinearLayout.LayoutParams(dp(38), dp(38)));
+        closeButton.setOnClickListener(v -> closeSalesInspirationDrawer());
+        panel.addView(titleRow, matchWrap());
+
+        ScrollView contentScroll = new ScrollView(this);
+        contentScroll.setFillViewport(false);
+        contentScroll.setVerticalScrollBarEnabled(false);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        contentScroll.addView(content, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        panel.addView(contentScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        FrameLayout imageFrame = new FrameLayout(this);
+        GradientDrawable imageBackground = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                darkMode ? new int[]{0xFF244A36, 0xFF11271C}
+                        : new int[]{0xFFD8F1E2, 0xFFB8E2C9});
+        imageBackground.setCornerRadius(dp(17));
+        imageFrame.setBackground(imageBackground);
+        imageFrame.setClipToOutline(true);
+        LinearLayout.LayoutParams imageParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(205));
+        imageParams.topMargin = dp(4);
+        content.addView(imageFrame, imageParams);
+
+        drawerHeroImage = new ImageView(this);
+        drawerHeroImage.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        imageFrame.addView(drawerHeroImage, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        drawerImageFallback = text("🛍️\nAKSO  /  SAVDO", 18,
+                darkMode ? 0xFFD4FBE4 : DARK_GREEN, true);
+        drawerImageFallback.setGravity(Gravity.CENTER);
+        drawerImageFallback.setLineSpacing(dp(5), 1f);
+        imageFrame.addView(drawerImageFallback, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        TextView caption = text("SAVDO VA MIJOZLAR BILAN ISHLASH", 8, MUTED, true);
+        caption.setLetterSpacing(0.08f);
+        caption.setPadding(dp(2), dp(12), dp(2), dp(6));
+        content.addView(caption, matchWrap());
+
+        GlassPanel article = new GlassPanel(this, false, 17);
+        article.setOrientation(LinearLayout.VERTICAL);
+        article.setPadding(dp(13), dp(12), dp(13), dp(13));
+        LinearLayout.LayoutParams articleParams = matchWrap();
+        articleParams.topMargin = dp(2);
+        content.addView(article, articleParams);
+
+        TextView articleLabel = text("SOATLIK SAVDO MASLAHATI", 9, DARK_GREEN, true);
+        articleLabel.setLetterSpacing(0.07f);
+        article.addView(articleLabel, matchWrap());
+
+        drawerArticleTitle = text("Savdo bo‘yicha foydali maslahat", 16, TEXT, true);
+        drawerArticleTitle.setGravity(Gravity.TOP);
+        drawerArticleTitle.setPadding(0, dp(8), 0, dp(7));
+        article.addView(drawerArticleTitle, matchWrap());
+
+        drawerArticleBody = text("Mijoz ehtiyojini tinglang, mahsulotning foydasini tushuntiring va to‘lov shartlarini ochiq ayting.",
+                11, TEXT, false);
+        drawerArticleBody.setGravity(Gravity.TOP);
+        drawerArticleBody.setLineSpacing(dp(3), 1f);
+        article.addView(drawerArticleBody, matchWrap());
+
+        drawerUpdateLabel = text("Oflayn foydalanish uchun oxirgi ma’lumot saqlanadi.", 8, MUTED, false);
+        drawerUpdateLabel.setPadding(dp(2), dp(11), dp(2), 0);
+        content.addView(drawerUpdateLabel, matchWrap());
+
+        TextView offlineNote = text(
+                "Internet bo‘lmasa, telefon xotirasidagi oxirgi rasm va maqola ko‘rsatiladi.",
+                8, MUTED, false);
+        offlineNote.setPadding(dp(2), dp(8), dp(2), dp(8));
+        content.addView(offlineNote, matchWrap());
+
+        drawerOverlay.addView(panel, new FrameLayout.LayoutParams(
+                drawerWidthPx, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.START | Gravity.TOP));
+        drawerHost.addView(drawerOverlay, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        panel.setTranslationX(-drawerWidthPx);
+        drawerScrim.animate().alpha(1f).setDuration(220).start();
+        panel.animate().translationX(0).setDuration(260)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && mainScrollView != null) {
+            mainScrollView.setRenderEffect(RenderEffect.createBlurEffect(
+                    dp(3.5f), dp(3.5f), Shader.TileMode.CLAMP));
+        }
+        refreshSalesDrawerCard();
+        enqueueSalesContentSyncIfStale();
+        scheduleDrawerCachePoll();
+        scheduleDrawerHourlyRefresh();
+    }
+
+    private void closeSalesInspirationDrawer() {
+        if (drawerOverlay == null) return;
+        if (drawerHourlyRefresh != null) drawerHandler.removeCallbacks(drawerHourlyRefresh);
+        if (drawerCachePoll != null) drawerHandler.removeCallbacks(drawerCachePoll);
+
+        final FrameLayout oldOverlay = drawerOverlay;
+        final View oldPanel = drawerPanel;
+        final View oldScrim = drawerScrim;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && mainScrollView != null) {
+            mainScrollView.setRenderEffect(null);
+        }
+        if (oldScrim != null) oldScrim.animate().alpha(0f).setDuration(180).start();
+        if (oldPanel != null) {
+            oldPanel.animate().translationX(-drawerWidthPx).setDuration(210)
+                    .withEndAction(() -> {
+                        if (drawerHost != null && oldOverlay.getParent() == drawerHost) {
+                            drawerHost.removeView(oldOverlay);
+                        }
+                    }).start();
+        } else if (drawerHost != null && oldOverlay.getParent() == drawerHost) {
+            drawerHost.removeView(oldOverlay);
+        }
+
+        drawerOverlay = null;
+        drawerPanel = null;
+        drawerScrim = null;
+        drawerHeroImage = null;
+        drawerImageFallback = null;
+        drawerArticleTitle = null;
+        drawerArticleBody = null;
+        drawerUpdateLabel = null;
+    }
+
+    private void scheduleDrawerHourlyRefresh() {
+        if (drawerHourlyRefresh != null) drawerHandler.removeCallbacks(drawerHourlyRefresh);
+        long hourMillis = TimeUnit.HOURS.toMillis(1);
+        long delay = hourMillis - (System.currentTimeMillis() % hourMillis) + 500L;
+        drawerHourlyRefresh = () -> {
+            if (drawerOverlay != null) {
+                refreshSalesDrawerCard();
+                scheduleDrawerHourlyRefresh();
+            }
+        };
+        drawerHandler.postDelayed(drawerHourlyRefresh, delay);
+    }
+
+    private void enqueueSalesContentSyncIfStale() {
+        SharedPreferences feedPreferences = getSharedPreferences(SALES_FEED_PREFS, MODE_PRIVATE);
+        long lastUpdate = feedPreferences.getLong(SALES_FEED_UPDATED_KEY, 0L);
+        long age = System.currentTimeMillis() - lastUpdate;
+        if (lastUpdate == 0L || age >= TimeUnit.MINUTES.toMillis(45)) {
+            Constraints constraints = new Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED).build();
+            OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(SalesContentWorker.class)
+                    .setConstraints(constraints)
+                    .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                    .build();
+            WorkManager.getInstance(getApplicationContext()).enqueueUniqueWork(
+                    "akso_sales_inspiration_one_time_sync", ExistingWorkPolicy.KEEP, request);
+        }
+    }
+
+    /** Refreshes the drawer once background downloads have landed in the local cache. */
+    private void scheduleDrawerCachePoll() {
+        if (drawerCachePoll != null) drawerHandler.removeCallbacks(drawerCachePoll);
+        drawerCachePollAttempts = 0;
+        drawerCachePoll = new Runnable() {
+            @Override public void run() {
+                if (drawerOverlay == null || drawerHeroImage == null) return;
+                if (drawerImageFallback != null
+                        && drawerImageFallback.getVisibility() == View.GONE) return;
+                refreshSalesDrawerCard();
+                drawerCachePollAttempts++;
+                if (drawerCachePollAttempts < 24 && drawerOverlay != null
+                        && drawerImageFallback != null
+                        && drawerImageFallback.getVisibility() != View.GONE) {
+                    drawerHandler.postDelayed(this, 4000L);
+                }
+            }
+        };
+        drawerHandler.postDelayed(drawerCachePoll, 3000L);
+    }
+
+    private void refreshSalesDrawerCard() {
+        if (drawerArticleTitle == null || drawerArticleBody == null) return;
+        SharedPreferences feedPreferences = getSharedPreferences(SALES_FEED_PREFS, MODE_PRIVATE);
+        String json = feedPreferences.getString(SALES_FEED_KEY, defaultSalesFeedJson());
+        try {
+            JSONObject root = new JSONObject(json);
+            JSONArray items = root.optJSONArray("items");
+            if (items == null || items.length() == 0) {
+                root = new JSONObject(defaultSalesFeedJson());
+                items = root.optJSONArray("items");
+            }
+            long hourIndex = System.currentTimeMillis() / TimeUnit.HOURS.toMillis(1);
+            JSONObject item = items.getJSONObject((int) (hourIndex % items.length()));
+            String id = item.optString("id", "akso_default").replaceAll("[^a-zA-Z0-9_-]", "_");
+            drawerArticleTitle.setText(item.optString("title", "Savdo bo‘yicha maslahat"));
+            drawerArticleBody.setText(item.optString("body", ""));
+
+            boolean imageReady = false;
+            if (drawerHeroImage != null) {
+                File imageFile = new File(new File(getFilesDir(), "akso_sales_feed"), id + ".jpg");
+                if (imageFile.isFile() && imageFile.length() > 0) {
+                    Bitmap bitmap = BitmapFactory.decodeFile(imageFile.getAbsolutePath());
+                    if (bitmap != null) {
+                        drawerHeroImage.setImageBitmap(bitmap);
+                        imageReady = true;
+                    }
+                }
+                drawerImageFallback.setVisibility(imageReady ? View.GONE : View.VISIBLE);
+            }
+            long updatedAt = feedPreferences.getLong(SALES_FEED_UPDATED_KEY, 0L);
+            String status = updatedAt > 0
+                    ? "Kontent yangilangan: " + new SimpleDateFormat("dd.MM.yyyy  HH:mm", Locale.getDefault()).format(updatedAt)
+                    : "Boshlang‘ich maqola telefonning ichida saqlangan";
+            drawerUpdateLabel.setText(status + "  ·  Rasm: " + item.optString("credit", "Unsplash"));
+        } catch (JSONException error) {
+            drawerArticleTitle.setText("Mijozga qiymat taklif qiling");
+            drawerArticleBody.setText("Mahsulotning foydasini tushuntiring, mijozni tinglang va to‘lov shartlarini aniq ko‘rsating.");
+            if (drawerImageFallback != null) drawerImageFallback.setVisibility(View.VISIBLE);
+        }
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (drawerOverlay != null) {
+            closeSalesInspirationDrawer();
+            return;
+        }
+        super.onBackPressed();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (drawerHourlyRefresh != null) drawerHandler.removeCallbacks(drawerHourlyRefresh);
+        if (drawerCachePoll != null) drawerHandler.removeCallbacks(drawerCachePoll);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && mainScrollView != null) {
+            mainScrollView.setRenderEffect(null);
+        }
+        super.onDestroy();
+    }
+
+    /** Intercepts only edge-origin horizontal swipes, leaving vertical scrolling untouched. */
+    private class DrawerHost extends FrameLayout {
+        private float downX;
+        private float downY;
+        private boolean trackingGesture;
+
+        DrawerHost(Context context) { super(context); }
+
+        @Override
+        public boolean onInterceptTouchEvent(MotionEvent event) {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    downX = event.getX();
+                    downY = event.getY();
+                    trackingGesture = drawerOverlay == null
+                            ? downX <= dp(30) : downX <= drawerWidthPx + dp(18);
+                    break;
+                case MotionEvent.ACTION_MOVE:
+                    if (trackingGesture) {
+                        float dx = event.getX() - downX;
+                        float dy = event.getY() - downY;
+                        boolean horizontal = Math.abs(dx) > dp(48)
+                                && Math.abs(dx) > Math.abs(dy) * 1.25f;
+                        if (horizontal && ((drawerOverlay == null && dx > 0)
+                                || (drawerOverlay != null && dx < 0))) return true;
+                    }
+                    break;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    trackingGesture = false;
+                    break;
+            }
+            return super.onInterceptTouchEvent(event);
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent event) {
+            if (event.getActionMasked() == MotionEvent.ACTION_UP) {
+                float dx = event.getX() - downX;
+                float dy = event.getY() - downY;
+                if (Math.abs(dx) > dp(48) && Math.abs(dx) > Math.abs(dy) * 1.25f) {
+                    if (drawerOverlay == null && dx > 0 && downX <= dp(30)) {
+                        openSalesInspirationDrawer();
+                    } else if (drawerOverlay != null && dx < 0) {
+                        closeSalesInspirationDrawer();
+                    }
+                }
+                trackingGesture = false;
+                return true;
+            }
+            if (event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                trackingGesture = false;
+                return true;
+            }
+            return true;
+        }
+    }
+
+    /** Downloads the current content feed and all related photos into persistent app storage. */
+    public static class SalesContentWorker extends Worker {
+        private static final int CONNECT_TIMEOUT_MS = 12000;
+        private static final int READ_TIMEOUT_MS = 18000;
+        private static final int MAX_FEED_BYTES = 512 * 1024;
+        private static final int MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+
+        public SalesContentWorker(Context context, WorkerParameters parameters) {
+            super(context, parameters);
+        }
+
+        @Override
+        public Result doWork() {
+            Context context = getApplicationContext();
+            SharedPreferences prefs = context.getSharedPreferences(SALES_FEED_PREFS, Context.MODE_PRIVATE);
+            String json = downloadText(SALES_FEED_URL, MAX_FEED_BYTES);
+            if (json == null || !isValidFeed(json)) json = prefs.getString(SALES_FEED_KEY, defaultSalesFeedJson());
+            if (!isValidFeed(json)) json = defaultSalesFeedJson();
+
+            try {
+                JSONObject feed = new JSONObject(json);
+                JSONArray items = feed.optJSONArray("items");
+                if (items == null || items.length() == 0) return Result.retry();
+                File cacheDir = new File(context.getFilesDir(), "akso_sales_feed");
+                if (!cacheDir.exists() && !cacheDir.mkdirs()) return Result.retry();
+
+                for (int i = 0; i < items.length(); i++) {
+                    JSONObject item = items.getJSONObject(i);
+                    String id = item.optString("id", "item_" + i).replaceAll("[^a-zA-Z0-9_-]", "_");
+                    String imageUrl = item.optString("imageUrl", "");
+                    if (id.isEmpty() || imageUrl.isEmpty()) continue;
+                    File imageFile = new File(cacheDir, id + ".jpg");
+                    String previousUrl = prefs.getString("image_url_" + id, "");
+                    if (!imageFile.isFile() || imageFile.length() < 1024 || !imageUrl.equals(previousUrl)) {
+                        if (downloadImage(imageUrl, imageFile)) {
+                            prefs.edit().putString("image_url_" + id, imageUrl).apply();
+                        }
+                    }
+                }
+
+                prefs.edit().putString(SALES_FEED_KEY, feed.toString())
+                        .putLong(SALES_FEED_UPDATED_KEY, System.currentTimeMillis()).apply();
+                return Result.success();
+            } catch (Exception exception) {
+                return Result.retry();
+            }
+        }
+
+        private static boolean isValidFeed(String json) {
+            try {
+                JSONArray items = new JSONObject(json).optJSONArray("items");
+                return items != null && items.length() > 0;
+            } catch (JSONException exception) { return false; }
+        }
+
+        private static String downloadText(String address, int maxBytes) {
+            HttpURLConnection connection = null;
+            try {
+                connection = (HttpURLConnection) new URL(address).openConnection();
+                connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+                connection.setReadTimeout(READ_TIMEOUT_MS);
+                connection.setRequestMethod("GET");
+                connection.setRequestProperty("User-Agent", "AKSO-Android/1.0");
+                connection.setInstanceFollowRedirects(true);
+                int status = connection.getResponseCode();
+                if (status < 200 || status >= 300) return null;
+                try (InputStream input = new BufferedInputStream(connection.getInputStream());
+                     ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+                    byte[] buffer = new byte[8192];
+                    int read; int total = 0;
+                    while ((read = input.read(buffer)) != -1) {
+                        total += read;
+                        if (total > maxBytes) return null;
+                        output.write(buffer, 0, read);
+                    }
+                    return output.toString("UTF-8");
+                }
+            } catch (Exception ignored) { return null; }
+            finally { if (connection != null) connection.disconnect(); }
+        }
+
+        private static boolean downloadImage(String address, File target) {
+            HttpURLConnection connection = null;
+            File temp = new File(target.getParentFile(), target.getName() + ".tmp");
+            try {
+                connection = (HttpURLConnection) new URL(address).openConnection();
+                connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+                connection.setReadTimeout(READ_TIMEOUT_MS);
+                connection.setRequestMethod("GET");
+                connection.setRequestProperty("User-Agent", "AKSO-Android/1.0");
+                connection.setInstanceFollowRedirects(true);
+                int status = connection.getResponseCode();
+                if (status < 200 || status >= 300) return false;
+                try (InputStream input = new BufferedInputStream(connection.getInputStream());
+                     FileOutputStream output = new FileOutputStream(temp)) {
+                    byte[] buffer = new byte[8192];
+                    int read; int total = 0;
+                    while ((read = input.read(buffer)) != -1) {
+                        total += read;
+                        if (total > MAX_IMAGE_BYTES) return false;
+                        output.write(buffer, 0, read);
+                    }
+                    output.flush();
+                }
+                if (!temp.isFile() || temp.length() < 1024) return false;
+                if (target.exists() && !target.delete()) return false;
+                return temp.renameTo(target);
+            } catch (Exception ignored) { return false; }
+            finally {
+                if (connection != null) connection.disconnect();
+                if (temp.exists()) temp.delete();
+            }
+        }
+    }
+
 }
