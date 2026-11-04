@@ -34,6 +34,7 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.view.inputmethod.BaseInputConnection;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -42,6 +43,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -140,6 +142,31 @@ public class MainActivity extends Activity {
     private Runnable drawerCachePoll;
     private int drawerCachePollAttempts;
 
+    // Private wallet: all records stay locally on this device.
+    private static final String WALLET_PREFS = "akso_personal_wallet";
+    private static final String WALLET_TRANSACTIONS_KEY = "transactions_json";
+    private static final String WALLET_OPENING_CASH_KEY = "opening_cash";
+    private static final String WALLET_OPENING_CARD_KEY = "opening_card";
+    private SharedPreferences walletPreferences;
+    private TextView walletTotalValue;
+    private TextView walletCashValue;
+    private TextView walletCardValue;
+    private TextView walletMonthIncomeValue;
+    private TextView walletMonthExpenseValue;
+    private TextView walletMonthLabel;
+    private LinearLayout walletLegendContainer;
+    private LinearLayout walletHistoryContainer;
+    private WalletDonutChart walletDonutChart;
+
+    private static class WalletSlice {
+        final String label;
+        final long amount;
+        final int color;
+        WalletSlice(String label, long amount, int color) {
+            this.label = label; this.amount = amount; this.color = color;
+        }
+    }
+
     // Seller knowledge quiz: 100 daily questions drawn from a rotating offline bank.
     private static final String QUIZ_PREFS = "akso_seller_quiz";
     private static final String QUIZ_DAY_KEY = "quiz_day";
@@ -198,6 +225,7 @@ public class MainActivity extends Activity {
         preferences = getSharedPreferences("akso_ui_preferences", MODE_PRIVATE);
         dailySalesPreferences = getSharedPreferences("akso_daily_sales", MODE_PRIVATE);
         quizPreferences = getSharedPreferences(QUIZ_PREFS, MODE_PRIVATE);
+        walletPreferences = getSharedPreferences(WALLET_PREFS, MODE_PRIVATE);
         initializeSellerQuizDay();
         darkMode = preferences.getBoolean("dark_mode", false);
         soundEnabled = preferences.getBoolean("sound_enabled", true);
@@ -2095,6 +2123,7 @@ public class MainActivity extends Activity {
         offlineNote.setPadding(dp(2), dp(8), dp(2), dp(8));
         content.addView(offlineNote, matchWrap());
 
+        addPersonalWalletSection(content);
         addSellerQuizSection(content);
 
         drawerOverlay.addView(panel, new FrameLayout.LayoutParams(
@@ -2117,6 +2146,704 @@ public class MainActivity extends Activity {
         scheduleDrawerHourlyRefresh();
     }
 
+
+
+    // ==================== AKSO PERSONAL WALLET ====================
+
+    private String walletAccountName(String account) {
+        return "card".equals(account) ? "Karta" : "Naqd";
+    }
+
+    private long walletOpeningBalance(String account) {
+        String key = "card".equals(account) ? WALLET_OPENING_CARD_KEY : WALLET_OPENING_CASH_KEY;
+        return walletPreferences.getLong(key, 0L);
+    }
+
+    private JSONArray readWalletTransactions() {
+        try {
+            return new JSONArray(walletPreferences.getString(WALLET_TRANSACTIONS_KEY, "[]"));
+        } catch (JSONException error) {
+            return new JSONArray();
+        }
+    }
+
+    private long walletAccountBalance(String account) {
+        long balance = walletOpeningBalance(account);
+        JSONArray transactions = readWalletTransactions();
+        for (int i = 0; i < transactions.length(); i++) {
+            JSONObject tx = transactions.optJSONObject(i);
+            if (tx == null) continue;
+            long amount = tx.optLong("amount", 0L);
+            String type = tx.optString("type", "");
+            String txAccount = tx.optString("account", "cash");
+            if ("income".equals(type) && account.equals(txAccount)) balance += amount;
+            else if ("expense".equals(type) && account.equals(txAccount)) balance -= amount;
+            else if ("transfer".equals(type)) {
+                String to = tx.optString("to_account", "card");
+                if (account.equals(txAccount)) balance -= amount;
+                if (account.equals(to)) balance += amount;
+            }
+        }
+        return balance;
+    }
+
+    private long walletTotalBalance() {
+        return walletAccountBalance("cash") + walletAccountBalance("card");
+    }
+
+    private long parseWalletAmount(EditText input) {
+        if (input == null || input.getText() == null) return 0L;
+        StringBuilder digits = new StringBuilder();
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.getText().charAt(i);
+            if (c >= '0' && c <= '9') digits.append(c);
+        }
+        if (digits.length() == 0) return 0L;
+        try { return Long.parseLong(digits.toString()); }
+        catch (NumberFormatException error) { return 0L; }
+    }
+
+    private EditText walletAmountField(String hint) {
+        EditText field = new EditText(this);
+        field.setSingleLine(true);
+        field.setTextSize(16);
+        field.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        field.setTextColor(DARK_GREEN);
+        field.setHintTextColor(MUTED);
+        field.setHint(hint);
+        field.setInputType(InputType.TYPE_CLASS_NUMBER);
+        field.setPadding(dp(11), 0, dp(11), 0);
+        field.setBackground(amountFieldBackground());
+        return field;
+    }
+
+    private EditText walletNoteField(String hint) {
+        EditText field = new EditText(this);
+        field.setSingleLine(true);
+        field.setTextSize(11);
+        field.setTextColor(TEXT);
+        field.setHintTextColor(MUTED);
+        field.setHint(hint);
+        field.setPadding(dp(11), 0, dp(11), 0);
+        field.setBackground(amountFieldBackground());
+        return field;
+    }
+
+    private void addPersonalWalletSection(LinearLayout parent) {
+        GlassPanel wallet = new GlassPanel(this, false, 19);
+        wallet.setOrientation(LinearLayout.VERTICAL);
+        wallet.setPadding(dp(12), dp(11), dp(12), dp(12));
+        LinearLayout.LayoutParams walletParams = matchWrap();
+        walletParams.topMargin = dp(10);
+        walletParams.bottomMargin = dp(10);
+        parent.addView(wallet, walletParams);
+
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = text("💰  SHAXSIY HAMYON", 10, DARK_GREEN, true);
+        title.setLetterSpacing(0.045f);
+        titleRow.addView(title, new LinearLayout.LayoutParams(0, dp(29), 1f));
+        Button openingButton = calculatorButton("⚙ Qoldiq", 8, false, true);
+        titleRow.addView(openingButton, new LinearLayout.LayoutParams(dp(83), dp(30)));
+        openingButton.setOnClickListener(v -> showWalletOpeningDialog());
+        wallet.addView(titleRow, matchWrap());
+
+        TextView totalCaption = text("UMUMIY BALANS", 8, MUTED, true);
+        totalCaption.setLetterSpacing(0.08f);
+        totalCaption.setPadding(dp(2), dp(7), dp(2), 0);
+        wallet.addView(totalCaption, matchWrap());
+        walletTotalValue = text("0 so‘m", 22, DARK_GREEN, true);
+        walletTotalValue.setPadding(dp(2), 0, dp(2), dp(3));
+        wallet.addView(walletTotalValue, matchWrap());
+
+        LinearLayout accountsRow = new LinearLayout(this);
+        accountsRow.setOrientation(LinearLayout.HORIZONTAL);
+        accountsRow.setGravity(Gravity.CENTER_VERTICAL);
+        wallet.addView(accountsRow, matchWrap());
+        GlassPanel cashCard = new GlassPanel(this, false, 12);
+        cashCard.setOrientation(LinearLayout.VERTICAL);
+        cashCard.setPadding(dp(9), dp(7), dp(8), dp(7));
+        accountsRow.addView(cashCard, new LinearLayout.LayoutParams(0, dp(61), 1f));
+        TextView cashCaption = text("💵 NAQD", 8, MUTED, true);
+        cashCard.addView(cashCaption, matchWrap());
+        walletCashValue = text("0 so‘m", 13, DARK_GREEN, true);
+        cashCard.addView(walletCashValue, matchWrap());
+
+        View accountGap = new View(this);
+        accountsRow.addView(accountGap, new LinearLayout.LayoutParams(dp(7), 1));
+        GlassPanel bankCard = new GlassPanel(this, false, 12);
+        bankCard.setOrientation(LinearLayout.VERTICAL);
+        bankCard.setPadding(dp(9), dp(7), dp(8), dp(7));
+        accountsRow.addView(bankCard, new LinearLayout.LayoutParams(0, dp(61), 1f));
+        TextView cardCaption = text("💳 KARTA", 8, MUTED, true);
+        bankCard.addView(cardCaption, matchWrap());
+        walletCardValue = text("0 so‘m", 13, DARK_GREEN, true);
+        bankCard.addView(walletCardValue, matchWrap());
+
+        LinearLayout actionRow = new LinearLayout(this);
+        actionRow.setOrientation(LinearLayout.HORIZONTAL);
+        actionRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams actionParams = matchWrap();
+        actionParams.topMargin = dp(8);
+        wallet.addView(actionRow, actionParams);
+        Button incomeButton = calculatorButton("＋ DAROMAD", 9, true, false);
+        actionRow.addView(incomeButton, new LinearLayout.LayoutParams(0, dp(39), 1f));
+        incomeButton.setOnClickListener(v -> showWalletEntryDialog(true));
+        View actionGap = new View(this);
+        actionRow.addView(actionGap, new LinearLayout.LayoutParams(dp(7), 1));
+        Button expenseButton = calculatorButton("− XARAJAT", 9, false, true);
+        expenseButton.setTextColor(Color.rgb(190, 61, 65));
+        actionRow.addView(expenseButton, new LinearLayout.LayoutParams(0, dp(39), 1f));
+        expenseButton.setOnClickListener(v -> showWalletEntryDialog(false));
+
+        LinearLayout secondaryRow = new LinearLayout(this);
+        secondaryRow.setOrientation(LinearLayout.HORIZONTAL);
+        secondaryRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams secondaryParams = matchWrap();
+        secondaryParams.topMargin = dp(6);
+        wallet.addView(secondaryRow, secondaryParams);
+        Button transferButton = calculatorButton("⇄ O‘tkazma", 8, false, true);
+        secondaryRow.addView(transferButton, new LinearLayout.LayoutParams(0, dp(32), 1f));
+        transferButton.setOnClickListener(v -> showWalletTransferDialog());
+        View secondaryGap = new View(this);
+        secondaryRow.addView(secondaryGap, new LinearLayout.LayoutParams(dp(7), 1));
+        Button historyButton = calculatorButton("☷ Tarix", 8, false, true);
+        secondaryRow.addView(historyButton, new LinearLayout.LayoutParams(0, dp(32), 1f));
+        historyButton.setOnClickListener(v -> showWalletHistoryDialog());
+
+        View divider = new View(this);
+        divider.setBackgroundColor(darkMode ? 0x557FA18D : 0x5595B8A2);
+        LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
+        dividerParams.topMargin = dp(10);
+        dividerParams.bottomMargin = dp(7);
+        wallet.addView(divider, dividerParams);
+
+        walletMonthLabel = text("BU OY", 8, MUTED, true);
+        walletMonthLabel.setLetterSpacing(0.08f);
+        wallet.addView(walletMonthLabel, matchWrap());
+        LinearLayout monthRow = new LinearLayout(this);
+        monthRow.setOrientation(LinearLayout.HORIZONTAL);
+        monthRow.setGravity(Gravity.CENTER_VERTICAL);
+        wallet.addView(monthRow, matchWrap());
+        LinearLayout incomeColumn = new LinearLayout(this);
+        incomeColumn.setOrientation(LinearLayout.VERTICAL);
+        monthRow.addView(incomeColumn, new LinearLayout.LayoutParams(0, dp(43), 1f));
+        incomeColumn.addView(text("KIRIM", 7, MUTED, true), matchWrap());
+        walletMonthIncomeValue = text("+0 so‘m", 11, DARK_GREEN, true);
+        incomeColumn.addView(walletMonthIncomeValue, matchWrap());
+        LinearLayout expenseColumn = new LinearLayout(this);
+        expenseColumn.setOrientation(LinearLayout.VERTICAL);
+        monthRow.addView(expenseColumn, new LinearLayout.LayoutParams(0, dp(43), 1f));
+        expenseColumn.addView(text("CHIQIM", 7, MUTED, true), matchWrap());
+        walletMonthExpenseValue = text("−0 so‘m", 11, Color.rgb(190, 61, 65), true);
+        expenseColumn.addView(walletMonthExpenseValue, matchWrap());
+
+        TextView chartHeading = text("XARAJATLAR TAQSIMOTI", 8, MUTED, true);
+        chartHeading.setLetterSpacing(0.07f);
+        chartHeading.setPadding(0, dp(4), 0, dp(5));
+        wallet.addView(chartHeading, matchWrap());
+        LinearLayout chartRow = new LinearLayout(this);
+        chartRow.setOrientation(LinearLayout.HORIZONTAL);
+        chartRow.setGravity(Gravity.CENTER_VERTICAL);
+        wallet.addView(chartRow, matchWrap());
+        walletDonutChart = new WalletDonutChart(this);
+        chartRow.addView(walletDonutChart, new LinearLayout.LayoutParams(dp(112), dp(112)));
+        walletLegendContainer = new LinearLayout(this);
+        walletLegendContainer.setOrientation(LinearLayout.VERTICAL);
+        walletLegendContainer.setPadding(dp(7), 0, 0, 0);
+        chartRow.addView(walletLegendContainer, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView recentHeading = text("SO‘NGGI OPERATSIYALAR", 8, MUTED, true);
+        recentHeading.setLetterSpacing(0.07f);
+        recentHeading.setPadding(0, dp(8), 0, dp(4));
+        wallet.addView(recentHeading, matchWrap());
+        walletHistoryContainer = new LinearLayout(this);
+        walletHistoryContainer.setOrientation(LinearLayout.VERTICAL);
+        wallet.addView(walletHistoryContainer, matchWrap());
+
+        TextView privacy = text("🔒 Ma’lumotlar faqat ushbu telefonda saqlanadi.", 7, MUTED, false);
+        privacy.setPadding(0, dp(8), 0, 0);
+        wallet.addView(privacy, matchWrap());
+        renderWalletSummary();
+    }
+
+    private void renderWalletSummary() {
+        if (walletTotalValue == null || walletPreferences == null) return;
+        long total = walletTotalBalance();
+        long cash = walletAccountBalance("cash");
+        long card = walletAccountBalance("card");
+        walletTotalValue.setText(formatMoney(BigDecimal.valueOf(total)) + " so‘m");
+        walletCashValue.setText(formatMoney(BigDecimal.valueOf(cash)) + " so‘m");
+        walletCardValue.setText(formatMoney(BigDecimal.valueOf(card)) + " so‘m");
+
+        Calendar now = Calendar.getInstance();
+        long monthIncome = 0L;
+        long monthExpense = 0L;
+        HashMap<String, Long> expenseCategories = new HashMap<>();
+        JSONArray transactions = readWalletTransactions();
+        for (int i = 0; i < transactions.length(); i++) {
+            JSONObject tx = transactions.optJSONObject(i);
+            if (tx == null) continue;
+            long time = tx.optLong("timestamp", 0L);
+            Calendar txDate = Calendar.getInstance();
+            txDate.setTimeInMillis(time);
+            if (txDate.get(Calendar.YEAR) != now.get(Calendar.YEAR)
+                    || txDate.get(Calendar.MONTH) != now.get(Calendar.MONTH)) continue;
+            String type = tx.optString("type", "");
+            long amount = tx.optLong("amount", 0L);
+            if ("income".equals(type)) monthIncome += amount;
+            else if ("expense".equals(type)) {
+                monthExpense += amount;
+                String category = tx.optString("category", "Boshqa");
+                Long previous = expenseCategories.get(category);
+                expenseCategories.put(category, (previous == null ? 0L : previous) + amount);
+            }
+        }
+        String monthName = new SimpleDateFormat("MMMM yyyy", new Locale("uz", "UZ"))
+                .format(now.getTime()).toUpperCase(new Locale("uz", "UZ"));
+        walletMonthLabel.setText(monthName + "  ·  OYLIK HISOBOT");
+        walletMonthIncomeValue.setText("+" + formatMoney(BigDecimal.valueOf(monthIncome)) + " so‘m");
+        walletMonthExpenseValue.setText("−" + formatMoney(BigDecimal.valueOf(monthExpense)) + " so‘m");
+
+        ArrayList<Map.Entry<String, Long>> sorted = new ArrayList<>(expenseCategories.entrySet());
+        Collections.sort(sorted, (a, b) -> Long.compare(b.getValue(), a.getValue()));
+        ArrayList<WalletSlice> slices = new ArrayList<>();
+        int[] palette = {0xFF18A85C, 0xFF4D9CD5, 0xFFF1B443, 0xFFE16B72, 0xFF8E77C8, 0xFF56B8AD};
+        long otherAmount = 0L;
+        for (int i = 0; i < sorted.size(); i++) {
+            Map.Entry<String, Long> entry = sorted.get(i);
+            if (i < 5) slices.add(new WalletSlice(entry.getKey(), entry.getValue(), palette[i % palette.length]));
+            else otherAmount += entry.getValue();
+        }
+        if (otherAmount > 0) slices.add(new WalletSlice("Boshqa", otherAmount, 0xFF89978E));
+        walletDonutChart.setData(slices, monthExpense);
+
+        walletLegendContainer.removeAllViews();
+        if (slices.isEmpty()) {
+            TextView empty = text("Hozircha xarajat kiritilmagan.\nXarajat qo‘shilgach, diagramma avtomatik yangilanadi.",
+                    8, MUTED, false);
+            empty.setLineSpacing(dp(2), 1f);
+            walletLegendContainer.addView(empty, matchWrap());
+        } else {
+            for (int i = 0; i < slices.size(); i++) {
+                WalletSlice slice = slices.get(i);
+                LinearLayout legendRow = new LinearLayout(this);
+                legendRow.setOrientation(LinearLayout.HORIZONTAL);
+                legendRow.setGravity(Gravity.CENTER_VERTICAL);
+                legendRow.setPadding(0, dp(2), 0, dp(2));
+                View dot = new View(this);
+                GradientDrawable dotBg = new GradientDrawable();
+                dotBg.setShape(GradientDrawable.OVAL);
+                dotBg.setColor(slice.color);
+                dot.setBackground(dotBg);
+                legendRow.addView(dot, new LinearLayout.LayoutParams(dp(7), dp(7)));
+                TextView label = text(slice.label + "  " + formatMoney(BigDecimal.valueOf(slice.amount)),
+                        8, TEXT, false);
+                label.setSingleLine(true);
+                label.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(0,
+                        ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                labelParams.leftMargin = dp(5);
+                legendRow.addView(label, labelParams);
+                walletLegendContainer.addView(legendRow, matchWrap());
+            }
+        }
+
+        walletHistoryContainer.removeAllViews();
+        int shown = 0;
+        for (int i = 0; i < transactions.length() && shown < 3; i++) {
+            JSONObject tx = transactions.optJSONObject(i);
+            if (tx == null) continue;
+            walletHistoryContainer.addView(buildWalletTransactionRow(tx), matchWrap());
+            shown++;
+        }
+        if (shown == 0) {
+            TextView empty = text("Operatsiyalar hozircha yo‘q. Daromad yoki xarajat qo‘shing.", 8, MUTED, false);
+            empty.setPadding(0, dp(3), 0, dp(3));
+            walletHistoryContainer.addView(empty, matchWrap());
+        }
+    }
+
+    private View buildWalletTransactionRow(JSONObject tx) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(2), dp(5), dp(2), dp(5));
+        String type = tx.optString("type", "expense");
+        String account = tx.optString("account", "cash");
+        String category = tx.optString("category", "Boshqa");
+        String note = tx.optString("note", "");
+        long amount = tx.optLong("amount", 0L);
+        TextView icon = text("income".equals(type) ? "↗" : ("transfer".equals(type) ? "⇄" : "↘"),
+                15, "income".equals(type) ? DARK_GREEN : ("expense".equals(type)
+                        ? Color.rgb(190, 61, 65) : MUTED), true);
+        row.addView(icon, new LinearLayout.LayoutParams(dp(25), dp(27)));
+        LinearLayout details = new LinearLayout(this);
+        details.setOrientation(LinearLayout.VERTICAL);
+        row.addView(details, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView label = text(note.trim().isEmpty() ? category : note.trim(), 9, TEXT, true);
+        label.setSingleLine(true);
+        label.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        details.addView(label, matchWrap());
+        long timestamp = tx.optLong("timestamp", System.currentTimeMillis());
+        String date = new SimpleDateFormat("dd.MM  HH:mm", Locale.getDefault()).format(timestamp);
+        String sub = "transfer".equals(type)
+                ? walletAccountName(account) + " → " + walletAccountName(tx.optString("to_account", "card"))
+                : walletAccountName(account) + "  ·  " + date;
+        details.addView(text(sub, 7, MUTED, false), matchWrap());
+        String prefix = "income".equals(type) ? "+" : ("expense".equals(type) ? "−" : "");
+        TextView amountText = text(prefix + formatMoney(BigDecimal.valueOf(amount)), 9,
+                "income".equals(type) ? DARK_GREEN : ("expense".equals(type)
+                        ? Color.rgb(190, 61, 65) : TEXT), true);
+        amountText.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        row.addView(amountText, wrapWrap());
+        return row;
+    }
+
+    private void saveWalletTransaction(String type, long amount, String account,
+                                       String toAccount, String category, String note) {
+        if (amount <= 0) {
+            Toast.makeText(this, "Summani to‘g‘ri kiriting.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        JSONArray old = readWalletTransactions();
+        JSONArray updated = new JSONArray();
+        JSONObject item = new JSONObject();
+        try {
+            item.put("type", type);
+            item.put("amount", amount);
+            item.put("account", account);
+            item.put("to_account", toAccount == null ? "" : toAccount);
+            item.put("category", category == null ? "Boshqa" : category);
+            item.put("note", note == null ? "" : note.trim());
+            item.put("timestamp", System.currentTimeMillis());
+            updated.put(item);
+            for (int i = 0; i < old.length(); i++) {
+                JSONObject previous = old.optJSONObject(i);
+                if (previous != null) updated.put(previous);
+            }
+        } catch (JSONException error) {
+            Toast.makeText(this, "Ma’lumotni saqlashda xatolik.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        walletPreferences.edit().putString(WALLET_TRANSACTIONS_KEY, updated.toString()).apply();
+        renderWalletSummary();
+        Toast.makeText(this, "Operatsiya saqlandi.", Toast.LENGTH_SHORT).show();
+    }
+
+    private void showWalletEntryDialog(boolean income) {
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dialog.setCancelable(true);
+        GlassPanel panel = new GlassPanel(this, false, 20);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(16), dp(13), dp(16), dp(14));
+        panel.addView(text(income ? "＋  DAROMAD QO‘SHISH" : "−  XARAJAT QO‘SHISH",
+                12, income ? DARK_GREEN : Color.rgb(190, 61, 65), true),
+                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(34)));
+        panel.addView(text("Summa (so‘m)", 8, MUTED, true), matchWrap());
+        EditText amountInput = walletAmountField("Masalan: 150000");
+        panel.addView(amountInput, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(45)));
+        addSpace(panel, 8);
+        panel.addView(text("Qaysi hamyonga?", 8, MUTED, true), matchWrap());
+        LinearLayout accountRow = new LinearLayout(this);
+        accountRow.setOrientation(LinearLayout.HORIZONTAL);
+        panel.addView(accountRow, matchWrap());
+        final String[] selectedAccount = {"cash"};
+        Button cashButton = calculatorButton("💵 Naqd", 9, false, true);
+        Button cardButton = calculatorButton("💳 Karta", 9, false, true);
+        accountRow.addView(cashButton, new LinearLayout.LayoutParams(0, dp(38), 1f));
+        View accountGap = new View(this);
+        accountRow.addView(accountGap, new LinearLayout.LayoutParams(dp(7), 1));
+        accountRow.addView(cardButton, new LinearLayout.LayoutParams(0, dp(38), 1f));
+        Runnable updateAccounts = () -> {
+            styleWalletChoice(cashButton, "cash".equals(selectedAccount[0]));
+            styleWalletChoice(cardButton, "card".equals(selectedAccount[0]));
+        };
+        cashButton.setOnClickListener(v -> { selectedAccount[0] = "cash"; updateAccounts.run(); });
+        cardButton.setOnClickListener(v -> { selectedAccount[0] = "card"; updateAccounts.run(); });
+        updateAccounts.run();
+
+        addSpace(panel, 8);
+        panel.addView(text("Kategoriya", 8, MUTED, true), matchWrap());
+        String[] categories = income
+                ? new String[]{"Savdo", "Maosh", "Qo‘shimcha daromad", "Qarz qaytishi", "Sovg‘a", "Boshqa"}
+                : new String[]{"Oziq-ovqat", "Transport", "Kommunal", "Uy-ro‘zg‘or", "Sog‘liq", "Ta’lim", "Kiyim-kechak", "Ko‘ngilochar", "Biznes", "Boshqa"};
+        Spinner categorySpinner = new Spinner(this);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, categories);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        categorySpinner.setAdapter(adapter);
+        panel.addView(categorySpinner, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)));
+
+        addSpace(panel, 7);
+        panel.addView(text("Izoh (ixtiyoriy)", 8, MUTED, true), matchWrap());
+        EditText noteInput = walletNoteField("Masalan: mahsulot savdosi");
+        panel.addView(noteInput, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)));
+        addSpace(panel, 11);
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        panel.addView(buttons, matchWrap());
+        Button cancel = calculatorButton("Bekor qilish", 9, false, true);
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(41), 1f));
+        cancel.setOnClickListener(v -> dialog.dismiss());
+        View buttonGap = new View(this);
+        buttons.addView(buttonGap, new LinearLayout.LayoutParams(dp(8), 1));
+        Button save = calculatorButton("Saqlash", 9, true, false);
+        buttons.addView(save, new LinearLayout.LayoutParams(0, dp(41), 1f));
+        save.setOnClickListener(v -> {
+            long amount = parseWalletAmount(amountInput);
+            if (amount <= 0) {
+                Toast.makeText(this, "Summani kiriting.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            saveWalletTransaction(income ? "income" : "expense", amount,
+                    selectedAccount[0], "", String.valueOf(categorySpinner.getSelectedItem()),
+                    noteInput.getText().toString());
+            dialog.dismiss();
+        });
+        showWalletDialog(dialog, panel, 0.84f);
+    }
+
+    private void styleWalletChoice(Button button, boolean selected) {
+        GradientDrawable background = new GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                selected ? (darkMode ? new int[]{0xE82BC17A, 0xD80C8050}
+                        : new int[]{0xEF22B866, 0xE8078B45})
+                        : (darkMode ? new int[]{0xC92D473A, 0xA71D3027}
+                        : new int[]{0xEFFFFFFF, 0xCDEAF5EE}));
+        background.setCornerRadius(dp(11));
+        background.setStroke(dp(1), 0x99FFFFFF);
+        button.setBackground(background);
+        button.setTextColor(selected ? Color.WHITE : TEXT);
+    }
+
+    private void showWalletTransferDialog() {
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dialog.setCancelable(true);
+        GlassPanel panel = new GlassPanel(this, false, 20);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(16), dp(13), dp(16), dp(14));
+        panel.addView(text("⇄  HAMYONLAR O‘RTASIDA O‘TKAZMA", 11, DARK_GREEN, true),
+                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(36)));
+        final boolean[] cashToCard = {true};
+        Button directionButton = calculatorButton("💵 NAQD  →  💳 KARTA", 10, false, true);
+        panel.addView(directionButton, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)));
+        directionButton.setOnClickListener(v -> {
+            cashToCard[0] = !cashToCard[0];
+            directionButton.setText(cashToCard[0] ? "💵 NAQD  →  💳 KARTA" : "💳 KARTA  →  💵 NAQD");
+        });
+        addSpace(panel, 8);
+        panel.addView(text("O‘tkazma summasi (so‘m)", 8, MUTED, true), matchWrap());
+        EditText amountInput = walletAmountField("Masalan: 200000");
+        panel.addView(amountInput, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(45)));
+        addSpace(panel, 7);
+        EditText noteInput = walletNoteField("Izoh (ixtiyoriy)");
+        panel.addView(noteInput, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)));
+        addSpace(panel, 11);
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        panel.addView(buttons, matchWrap());
+        Button cancel = calculatorButton("Bekor", 9, false, true);
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(41), 1f));
+        cancel.setOnClickListener(v -> dialog.dismiss());
+        View gap = new View(this);
+        buttons.addView(gap, new LinearLayout.LayoutParams(dp(8), 1));
+        Button save = calculatorButton("O‘tkazish", 9, true, false);
+        buttons.addView(save, new LinearLayout.LayoutParams(0, dp(41), 1f));
+        save.setOnClickListener(v -> {
+            long amount = parseWalletAmount(amountInput);
+            if (amount <= 0) {
+                Toast.makeText(this, "Summani kiriting.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            String from = cashToCard[0] ? "cash" : "card";
+            String to = cashToCard[0] ? "card" : "cash";
+            if (amount > walletAccountBalance(from)) {
+                Toast.makeText(this, "Tanlangan hamyonda mablag‘ yetarli emas.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            saveWalletTransaction("transfer", amount, from, to, "O‘tkazma", noteInput.getText().toString());
+            dialog.dismiss();
+        });
+        showWalletDialog(dialog, panel, 0.72f);
+    }
+
+    private void showWalletOpeningDialog() {
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dialog.setCancelable(true);
+        GlassPanel panel = new GlassPanel(this, false, 20);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(16), dp(13), dp(16), dp(14));
+        panel.addView(text("HAMYON BOSHLANG‘ICH QOLDIQLARI", 11, DARK_GREEN, true),
+                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(36)));
+        panel.addView(text("Hozirgi naqd va karta qoldig‘ini kiriting. Saqlanganda ilova oldingi yozuvlarni hisobga olib, balansni aynan shu summaga moslaydi.",
+                8, MUTED, false), matchWrap());
+        addSpace(panel, 8);
+        panel.addView(text("Naqd pul (so‘m)", 8, MUTED, true), matchWrap());
+        EditText cashInput = walletAmountField("Naqd qoldiq");
+        cashInput.setText(walletAccountBalance("cash") != 0
+                ? formatMoney(BigDecimal.valueOf(walletAccountBalance("cash"))) : "");
+        panel.addView(cashInput, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+        addSpace(panel, 7);
+        panel.addView(text("Bank kartalari (jami, so‘m)", 8, MUTED, true), matchWrap());
+        EditText cardInput = walletAmountField("Karta qoldig‘i");
+        cardInput.setText(walletAccountBalance("card") != 0
+                ? formatMoney(BigDecimal.valueOf(walletAccountBalance("card"))) : "");
+        panel.addView(cardInput, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+        addSpace(panel, 11);
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        panel.addView(buttons, matchWrap());
+        Button cancel = calculatorButton("Bekor", 9, false, true);
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(41), 1f));
+        cancel.setOnClickListener(v -> dialog.dismiss());
+        View gap = new View(this);
+        buttons.addView(gap, new LinearLayout.LayoutParams(dp(8), 1));
+        Button save = calculatorButton("Saqlash", 9, true, false);
+        buttons.addView(save, new LinearLayout.LayoutParams(0, dp(41), 1f));
+        save.setOnClickListener(v -> {
+            long cash = parseWalletAmount(cashInput);
+            long card = parseWalletAmount(cardInput);
+            long cashNet = walletAccountBalance("cash") - walletOpeningBalance("cash");
+            long cardNet = walletAccountBalance("card") - walletOpeningBalance("card");
+            walletPreferences.edit().putLong(WALLET_OPENING_CASH_KEY, cash - cashNet)
+                    .putLong(WALLET_OPENING_CARD_KEY, card - cardNet).apply();
+            renderWalletSummary();
+            dialog.dismiss();
+            Toast.makeText(this, "Boshlang‘ich qoldiqlar saqlandi.", Toast.LENGTH_SHORT).show();
+        });
+        showWalletDialog(dialog, panel, 0.72f);
+    }
+
+    private void showWalletDialog(Dialog dialog, View content, float widthFactor) {
+        dialog.setContentView(content);
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            WindowManager.LayoutParams attrs = window.getAttributes();
+            attrs.width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(30),
+                    Math.round(getResources().getDisplayMetrics().widthPixels * widthFactor));
+            attrs.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+            attrs.gravity = Gravity.CENTER;
+            attrs.dimAmount = darkMode ? 0.52f : 0.34f;
+            window.setAttributes(attrs);
+        }
+    }
+
+    private void showWalletHistoryDialog() {
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dialog.setCancelable(true);
+        GlassPanel panel = new GlassPanel(this, false, 20);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(14), dp(12), dp(14), dp(12));
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.addView(text("OPERATSIYALAR TARIXI", 11, DARK_GREEN, true),
+                new LinearLayout.LayoutParams(0, dp(34), 1f));
+        Button close = calculatorButton("✕", 10, false, true);
+        header.addView(close, new LinearLayout.LayoutParams(dp(34), dp(34)));
+        close.setOnClickListener(v -> dialog.dismiss());
+        panel.addView(header, matchWrap());
+        ScrollView scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        scroll.addView(list, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        JSONArray transactions = readWalletTransactions();
+        if (transactions.length() == 0) {
+            list.addView(text("Hozircha operatsiyalar mavjud emas.", 9, MUTED, false), matchWrap());
+        } else {
+            for (int i = 0; i < transactions.length(); i++) {
+                JSONObject tx = transactions.optJSONObject(i);
+                if (tx != null) list.addView(buildWalletTransactionRow(tx), matchWrap());
+                View divider = new View(this);
+                divider.setBackgroundColor(darkMode ? 0x447FA18D : 0x3385AA95);
+                list.addView(divider, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
+            }
+        }
+        panel.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(430)));
+        Button done = calculatorButton("Yopish", 9, true, false);
+        LinearLayout.LayoutParams doneParams = matchWrap();
+        doneParams.topMargin = dp(8);
+        panel.addView(done, doneParams);
+        done.setOnClickListener(v -> dialog.dismiss());
+        dialog.setContentView(panel);
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(30), dp(380)),
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            window.setDimAmount(darkMode ? 0.52f : 0.34f);
+        }
+    }
+
+    private class WalletDonutChart extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.RectF bounds = new android.graphics.RectF();
+        private ArrayList<WalletSlice> data = new ArrayList<>();
+        private long total = 0L;
+        WalletDonutChart(Context context) { super(context); }
+        void setData(ArrayList<WalletSlice> slices, long totalAmount) {
+            data = new ArrayList<>(slices);
+            total = totalAmount;
+            invalidate();
+        }
+        @Override protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float cx = getWidth() / 2f;
+            float cy = getHeight() / 2f;
+            float stroke = dp(15);
+            float radius = Math.min(getWidth(), getHeight()) / 2f - stroke / 2f - dp(3);
+            bounds.set(cx - radius, cy - radius, cx + radius, cy + radius);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(stroke);
+            paint.setStrokeCap(Paint.Cap.BUTT);
+            if (data.isEmpty() || total <= 0) {
+                paint.setColor(darkMode ? 0xFF344D3E : 0xFFDCEBE1);
+                canvas.drawArc(bounds, 0, 360, false, paint);
+            } else {
+                float start = -90f;
+                for (WalletSlice slice : data) {
+                    float sweep = (float) (360d * slice.amount / total);
+                    paint.setColor(slice.color);
+                    canvas.drawArc(bounds, start, Math.max(1f, sweep), false, paint);
+                    start += sweep;
+                }
+            }
+            paint.setStyle(Paint.Style.FILL);
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setColor(MUTED);
+            paint.setTextSize(dp(7));
+            canvas.drawText("OYLIK CHIQIM", cx, cy - dp(3), paint);
+            paint.setColor(TEXT);
+            paint.setTypeface(Typeface.DEFAULT_BOLD);
+            paint.setTextSize(dp(9));
+            canvas.drawText(compactWalletAmount(total), cx, cy + dp(11), paint);
+        }
+    }
+
+    private String compactWalletAmount(long amount) {
+        long abs = Math.abs(amount);
+        if (abs >= 1_000_000_000L) return String.format(Locale.US, "%.1f mlrd", amount / 1_000_000_000d);
+        if (abs >= 1_000_000L) return String.format(Locale.US, "%.1f mln", amount / 1_000_000d);
+        if (abs >= 1_000L) return String.format(Locale.US, "%.0f ming", amount / 1_000d);
+        return formatMoney(BigDecimal.valueOf(amount));
+    }
+
+    // ================== END AKSO PERSONAL WALLET ==================
 
     private String getQuizTodayStamp() {
         return new SimpleDateFormat("yyyyMMdd", Locale.US).format(Calendar.getInstance().getTime());
