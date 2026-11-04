@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "850333274442",
+    "project_id": "akso-finance",
+    "storage_bucket": "akso-finance.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:850333274442:android:fef66b855937c693f471b3",
+        "android_client_info": {
+          "package_name": "uz.akso.kalkulyator"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "850333274442-pirpnsdatlluesbkoa50t7vapvg6qmk6.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "uz.akso.kalkulyator",
+            "certificate_hash": "e480784e897b92c78f3060e51a68844806a6a0cb"
+          }
+        },
+        {
+          "client_id": "850333274442-m0i5s8q6ojgn6l2i9ca41hiftmsdvvh7.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB-lC2nJuR1dAMmF822xvYFnBkzp6lcHXc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "850333274442-m0i5s8q6ojgn6l2i9ca41hiftmsdvvh7.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
