@@ -2838,7 +2838,77 @@ public class MainActivity extends Activity {
             dialog.dismiss();
             Toast.makeText(this, "Boshlang‘ich qoldiqlar saqlandi.", Toast.LENGTH_SHORT).show();
         });
+
+        addSpace(panel, 9);
+        Button clearAll = calculatorButton("🗑  BARCHA HAMYON MA’LUMOTLARINI O‘CHIRISH", 8, false, true);
+        clearAll.setTextColor(Color.rgb(190, 55, 62));
+        GradientDrawable clearBackground = new GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                darkMode ? new int[]{0xA94B252A, 0x882C1D22}
+                        : new int[]{0xFFFCEBED, 0xFFEFDADD});
+        clearBackground.setCornerRadius(dp(12));
+        clearBackground.setStroke(dp(1), darkMode ? 0xCCF17A82 : 0xCCA93B45);
+        clearAll.setBackground(clearBackground);
+        clearAll.setMinHeight(0);
+        clearAll.setMinimumHeight(0);
+        clearAll.setPadding(dp(8), 0, dp(8), 0);
+        panel.addView(clearAll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(40)));
+        clearAll.setOnClickListener(v -> {
+            dialog.dismiss();
+            showWalletClearConfirmationDialog();
+        });
+
         showWalletDialog(dialog, panel, 0.72f);
+    }
+
+    /** A second confirmation prevents accidental deletion of the complete local wallet. */
+    private void showWalletClearConfirmationDialog() {
+        Dialog confirmDialog = new Dialog(this);
+        confirmDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        confirmDialog.setCancelable(true);
+
+        GlassPanel confirmPanel = new GlassPanel(this, false, 20);
+        confirmPanel.setOrientation(LinearLayout.VERTICAL);
+        confirmPanel.setPadding(dp(16), dp(14), dp(16), dp(14));
+        TextView heading = text("⚠  HAMYONNI TO‘LIQ TOZALASH", 11,
+                Color.rgb(190, 55, 62), true);
+        confirmPanel.addView(heading, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(34)));
+        TextView warning = text(
+                "Bu amal naqd va karta qoldiqlarini, barcha daromad va xarajat yozuvlarini, o‘tkazmalar tarixini hamda oylik statistikani o‘chiradi. Ma’lumotlarni qayta tiklab bo‘lmaydi.",
+                9, TEXT, false);
+        warning.setGravity(Gravity.TOP);
+        warning.setLineSpacing(dp(3), 1f);
+        confirmPanel.addView(warning, matchWrap());
+        addSpace(confirmPanel, 12);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        confirmPanel.addView(actions, matchWrap());
+        Button cancel = calculatorButton("Yo‘q, saqlash", 9, false, true);
+        actions.addView(cancel, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        cancel.setOnClickListener(v -> confirmDialog.dismiss());
+        View gap = new View(this);
+        actions.addView(gap, new LinearLayout.LayoutParams(dp(8), 1));
+        Button confirm = calculatorButton("Ha, o‘chirish", 9, false, true);
+        confirm.setTextColor(Color.WHITE);
+        GradientDrawable dangerBackground = new GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{0xFFF06B70, 0xFFB72D39});
+        dangerBackground.setCornerRadius(dp(12));
+        dangerBackground.setStroke(dp(1), 0xFFFFC5C8);
+        confirm.setBackground(dangerBackground);
+        actions.addView(confirm, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        confirm.setOnClickListener(v -> {
+            // WALLET_PREFS is dedicated to the wallet, so clear every wallet key at once.
+            walletPreferences.edit().clear().apply();
+            renderWalletSummary();
+            confirmDialog.dismiss();
+            Toast.makeText(this, "Hamyon ma’lumotlari to‘liq o‘chirildi.",
+                    Toast.LENGTH_LONG).show();
+        });
+        showWalletDialog(confirmDialog, confirmPanel, 0.88f);
     }
 
     private void showWalletDialog(Dialog dialog, View content, float widthFactor) {
