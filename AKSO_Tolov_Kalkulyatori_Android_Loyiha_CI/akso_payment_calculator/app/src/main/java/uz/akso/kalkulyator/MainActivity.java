@@ -154,6 +154,7 @@ public class MainActivity extends Activity {
     private TextView walletMonthIncomeValue;
     private TextView walletMonthExpenseValue;
     private TextView walletMonthLabel;
+    private Dialog personalWalletDialog;
     private LinearLayout walletLegendContainer;
     private LinearLayout walletHistoryContainer;
     private WalletDonutChart walletDonutChart;
@@ -410,9 +411,19 @@ public class MainActivity extends Activity {
         coinParams.setMargins(dp(4), 0, dp(2), 0);
         header.addView(coinBalanceLabel, coinParams);
 
-        // Compact daily-sales shortcut: same dimensions and glass style as Settings.
-        Button salesButton = calculatorButton("$", 16, false, true);
-        salesButton.setContentDescription("Kunlik savdo hisoboti");
+        // Dedicated personal-wallet shortcut; the wallet opens as its own full-screen section.
+        Button walletButton = calculatorButton("👛", 13, false, true);
+        walletButton.setPadding(0, 0, 0, 0);
+        walletButton.setContentDescription("Shaxsiy hamyonni ochish");
+        LinearLayout.LayoutParams walletButtonParams = new LinearLayout.LayoutParams(dp(32), dp(32));
+        walletButtonParams.setMargins(dp(4), 0, 0, 0);
+        header.addView(walletButton, walletButtonParams);
+        walletButton.setOnClickListener(v -> showPersonalWalletScreen());
+
+        // The former dollar shortcut is now a calendar icon; its sales-calendar action is unchanged.
+        Button salesButton = calculatorButton("▦", 18, false, true);
+        salesButton.setPadding(0, 0, 0, dp(2));
+        salesButton.setContentDescription("Kunlik savdo kalendari");
         LinearLayout.LayoutParams salesParams = new LinearLayout.LayoutParams(dp(32), dp(32));
         salesParams.setMargins(dp(5), 0, 0, 0);
         header.addView(salesButton, salesParams);
@@ -2123,7 +2134,7 @@ public class MainActivity extends Activity {
         offlineNote.setPadding(dp(2), dp(8), dp(2), dp(8));
         content.addView(offlineNote, matchWrap());
 
-        addPersonalWalletSection(content);
+        // Wallet is now opened from its own home-screen icon, not embedded in this drawer.
         addSellerQuizSection(content);
 
         drawerOverlay.addView(panel, new FrameLayout.LayoutParams(
@@ -2227,6 +2238,115 @@ public class MainActivity extends Activity {
         field.setPadding(dp(11), 0, dp(11), 0);
         field.setBackground(amountFieldBackground());
         return field;
+    }
+
+    /** Opens the personal wallet as a dedicated, scrollable full-screen app section. */
+    private void showPersonalWalletScreen() {
+        if (personalWalletDialog != null && personalWalletDialog.isShowing()) return;
+
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dialog.setCancelable(true);
+
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(PAGE);
+        GlassBackdropView backdrop = new GlassBackdropView(this);
+        root.addView(backdrop, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        GlassPanel screen = new GlassPanel(this, false, 22);
+        screen.setOrientation(LinearLayout.VERTICAL);
+        screen.setPadding(dp(13), dp(10), dp(13), dp(12));
+        FrameLayout.LayoutParams screenParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        screenParams.setMargins(dp(7), dp(7), dp(7), dp(7));
+        root.addView(screen, screenParams);
+
+        LinearLayout topBar = new LinearLayout(this);
+        topBar.setOrientation(LinearLayout.HORIZONTAL);
+        topBar.setGravity(Gravity.CENTER_VERTICAL);
+        TextView heading = text("💰  AKSO  /  SHAXSIY HAMYON", 11, DARK_GREEN, true);
+        heading.setLetterSpacing(0.035f);
+        topBar.addView(heading, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        Button closeButton = calculatorButton("✕", 13, false, true);
+        closeButton.setContentDescription("Hamyondan chiqish");
+        topBar.addView(closeButton, new LinearLayout.LayoutParams(dp(38), dp(38)));
+        closeButton.setOnClickListener(v -> dialog.dismiss());
+        screen.addView(topBar, matchWrap());
+
+        TextView intro = text("Naqd pul, bank kartalari, daromad va xarajatlaringizni bir joyda boshqaring.",
+                8, MUTED, false);
+        intro.setPadding(dp(2), 0, dp(2), dp(7));
+        intro.setLineSpacing(dp(2), 1f);
+        screen.addView(intro, matchWrap());
+
+        ScrollView walletScroll = new ScrollView(this);
+        walletScroll.setFillViewport(false);
+        walletScroll.setVerticalScrollBarEnabled(false);
+        LinearLayout walletContent = new LinearLayout(this);
+        walletContent.setOrientation(LinearLayout.VERTICAL);
+        walletScroll.addView(walletContent, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        screen.addView(walletScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        // Reuse the existing wallet dashboard and transaction handlers without duplicating data logic.
+        addPersonalWalletSection(walletContent);
+
+        TextView footer = text("Ma’lumotlaringiz ushbu qurilmada saqlanadi.", 7, MUTED, false);
+        footer.setGravity(Gravity.CENTER);
+        footer.setPadding(0, dp(5), 0, 0);
+        screen.addView(footer, matchWrap());
+
+        dialog.setContentView(root);
+        final View activityContent = findViewById(android.R.id.content);
+        final boolean blurApplied = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                && activityContent != null;
+        if (blurApplied) {
+            try {
+                activityContent.setRenderEffect(RenderEffect.createBlurEffect(
+                        dp(8), dp(8), Shader.TileMode.CLAMP));
+            } catch (RuntimeException ignored) {
+                // The wallet remains fully usable even when backdrop blur is unsupported.
+            }
+        }
+        dialog.setOnDismissListener(d -> {
+            if (blurApplied && activityContent != null) {
+                try { activityContent.setRenderEffect(null); }
+                catch (RuntimeException ignored) { /* Ignore unsupported renderer cleanup. */ }
+            }
+            if (personalWalletDialog == dialog) personalWalletDialog = null;
+            walletTotalValue = null;
+            walletCashValue = null;
+            walletCardValue = null;
+            walletMonthIncomeValue = null;
+            walletMonthExpenseValue = null;
+            walletMonthLabel = null;
+            walletLegendContainer = null;
+            walletHistoryContainer = null;
+            walletDonutChart = null;
+        });
+        dialog.show();
+        personalWalletDialog = dialog;
+
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            WindowManager.LayoutParams attributes = window.getAttributes();
+            attributes.width = ViewGroup.LayoutParams.MATCH_PARENT;
+            attributes.height = ViewGroup.LayoutParams.MATCH_PARENT;
+            attributes.gravity = Gravity.CENTER;
+            attributes.dimAmount = darkMode ? 0.30f : 0.18f;
+            window.setAttributes(attributes);
+            window.setStatusBarColor(PAGE);
+            window.setNavigationBarColor(PAGE);
+            int systemUiFlags = darkMode ? 0
+                    : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+            window.getDecorView().setSystemUiVisibility(systemUiFlags);
+            window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
+
     }
 
     private void addPersonalWalletSection(LinearLayout parent) {
