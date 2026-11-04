@@ -44,7 +44,7 @@ public class GoogleAccountActivity extends Activity {
 
     private FirebaseAuth auth;
     private CredentialManager credentialManager;
-    private LinearLayout root;
+    private FrameLayout root;
     private TextView statusView;
     private Button googleButton;
     private final Handler handler = new Handler(Looper.getMainLooper());
