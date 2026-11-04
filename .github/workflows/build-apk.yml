@@ -35,9 +35,23 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      # Keep the same Android debug signing key between GitHub Actions runs.
+      # This makes the Firebase SHA-1 stable while testing Google Sign-In.
+      - name: Restore stable Android debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: akso-debug-signing-key-v1
+
       - name: Build APK
         working-directory: AKSO_Tolov_Kalkulyatori_Android_Loyiha_CI/akso_payment_calculator
         run: gradle --no-daemon assembleDebug
+
+      # Print the SHA-1/SHA-256 fingerprints used by the debug APK signer.
+      # We will use this SHA-1 in Firebase for Google Sign-In testing.
+      - name: Print Android signing fingerprints
+        working-directory: AKSO_Tolov_Kalkulyatori_Android_Loyiha_CI/akso_payment_calculator
+        run: gradle --no-daemon signingReport
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
