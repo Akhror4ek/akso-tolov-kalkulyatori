@@ -40,6 +40,7 @@ import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -56,6 +57,13 @@ import java.math.RoundingMode;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Locale;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import org.json.JSONArray;
@@ -132,6 +140,47 @@ public class MainActivity extends Activity {
     private Runnable drawerCachePoll;
     private int drawerCachePollAttempts;
 
+    // Seller knowledge quiz: 100 daily questions drawn from a rotating offline bank.
+    private static final String QUIZ_PREFS = "akso_seller_quiz";
+    private static final String QUIZ_DAY_KEY = "quiz_day";
+    private static final String QUIZ_POSITION_KEY = "quiz_position";
+    private static final String QUIZ_CORRECT_KEY = "quiz_correct_today";
+    private static final String QUIZ_COINS_KEY = "quiz_total_coins";
+    private static final String QUIZ_IDS_KEY = "quiz_daily_question_ids";
+    private static final String QUIZ_VERSION_KEY = "quiz_bank_version";
+    private static final int DAILY_QUIZ_SIZE = 100;
+    private static final int QUIZ_BANK_VERSION = 3;
+    private SharedPreferences quizPreferences;
+    private TextView coinBalanceLabel;
+    private TextView quizProgressLabel;
+    private ProgressBar quizProgressBar;
+    private TextView quizQuestionText;
+    private TextView quizFeedbackText;
+    private Button[] quizOptionButtons = new Button[4];
+    private Button quizNextButton;
+    private int quizQuestionIndex = 0;
+    private int quizCorrectCount = 0;
+    private boolean quizAnswered = false;
+    private boolean quizCompleted = false;
+    private final ArrayList<SellerQuizQuestion> dailySellerQuizQuestions = new ArrayList<>();
+
+    private static class SellerQuizQuestion {
+        final String id;
+        final String question;
+        final String[] options;
+        final int correctIndex;
+        final String explanation;
+
+        SellerQuizQuestion(String id, String question, String[] options,
+                           int correctIndex, String explanation) {
+            this.id = id;
+            this.question = question;
+            this.options = options;
+            this.correctIndex = correctIndex;
+            this.explanation = explanation;
+        }
+    }
+
     // Guards the short, deferred in-place formatting pass while the IME is idle.
     private boolean formattingAmount = false;
 
@@ -148,6 +197,8 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         preferences = getSharedPreferences("akso_ui_preferences", MODE_PRIVATE);
         dailySalesPreferences = getSharedPreferences("akso_daily_sales", MODE_PRIVATE);
+        quizPreferences = getSharedPreferences(QUIZ_PREFS, MODE_PRIVATE);
+        initializeSellerQuizDay();
         darkMode = preferences.getBoolean("dark_mode", false);
         soundEnabled = preferences.getBoolean("sound_enabled", true);
         vibrationEnabled = preferences.getBoolean("vibration_enabled", true);
@@ -311,6 +362,25 @@ public class MainActivity extends Activity {
         subtitle.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         subtitle.setShadowLayer(dp(5), 0, dp(1), 0x55FFFFFF);
         header.addView(subtitle, wrapWrap());
+
+        // Persistent gold coin counter, visible on the calculator home header.
+        coinBalanceLabel = text("🪙" + getQuizCoinBalance(), 9,
+                Color.rgb(255, 232, 151), true);
+        coinBalanceLabel.setGravity(Gravity.CENTER);
+        coinBalanceLabel.setSingleLine(true);
+        coinBalanceLabel.setPadding(dp(5), 0, dp(5), 0);
+        GradientDrawable coinBadge = new GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                darkMode ? new int[]{0xD94B4527, 0xB933301D}
+                        : new int[]{0xE8FFF7D8, 0xD9F3DCA6});
+        coinBadge.setCornerRadius(dp(13));
+        coinBadge.setStroke(dp(1), 0xA8F6D77A);
+        coinBalanceLabel.setBackground(coinBadge);
+        coinBalanceLabel.setContentDescription("To‘plangan tangalar: " + getQuizCoinBalance());
+        LinearLayout.LayoutParams coinParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(29));
+        coinParams.setMargins(dp(4), 0, dp(2), 0);
+        header.addView(coinBalanceLabel, coinParams);
 
         // Compact daily-sales shortcut: same dimensions and glass style as Settings.
         Button salesButton = calculatorButton("$", 16, false, true);
@@ -2025,6 +2095,8 @@ public class MainActivity extends Activity {
         offlineNote.setPadding(dp(2), dp(8), dp(2), dp(8));
         content.addView(offlineNote, matchWrap());
 
+        addSellerQuizSection(content);
+
         drawerOverlay.addView(panel, new FrameLayout.LayoutParams(
                 drawerWidthPx, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.START | Gravity.TOP));
         drawerHost.addView(drawerOverlay, new FrameLayout.LayoutParams(
@@ -2043,6 +2115,476 @@ public class MainActivity extends Activity {
         enqueueSalesContentSyncIfStale();
         scheduleDrawerCachePoll();
         scheduleDrawerHourlyRefresh();
+    }
+
+
+    private String getQuizTodayStamp() {
+        return new SimpleDateFormat("yyyyMMdd", Locale.US).format(Calendar.getInstance().getTime());
+    }
+
+    private void initializeSellerQuizDay() {
+        if (quizPreferences == null) return;
+        String today = getQuizTodayStamp();
+        String savedDay = quizPreferences.getString(QUIZ_DAY_KEY, "");
+        int savedVersion = quizPreferences.getInt(QUIZ_VERSION_KEY, 0);
+        String savedIds = quizPreferences.getString(QUIZ_IDS_KEY, "");
+
+        if (!today.equals(savedDay) || savedVersion != QUIZ_BANK_VERSION || savedIds.trim().isEmpty()) {
+            // Do not repeat any question from the immediately preceding daily set.
+            Set<String> yesterdayIds = parseQuizIds(savedIds);
+            ArrayList<SellerQuizQuestion> selected = createDailySellerQuiz(today, yesterdayIds);
+            dailySellerQuizQuestions.clear();
+            dailySellerQuizQuestions.addAll(selected);
+            StringBuilder ids = new StringBuilder();
+            for (SellerQuizQuestion question : dailySellerQuizQuestions) {
+                if (ids.length() > 0) ids.append('|');
+                ids.append(question.id);
+            }
+            quizPreferences.edit()
+                    .putString(QUIZ_DAY_KEY, today)
+                    .putString(QUIZ_IDS_KEY, ids.toString())
+                    .putInt(QUIZ_VERSION_KEY, QUIZ_BANK_VERSION)
+                    .putInt(QUIZ_POSITION_KEY, 0)
+                    .putInt(QUIZ_CORRECT_KEY, 0)
+                    .apply();
+            quizQuestionIndex = 0;
+            quizCorrectCount = 0;
+        } else {
+            dailySellerQuizQuestions.clear();
+            dailySellerQuizQuestions.addAll(loadDailySellerQuiz(savedIds, today));
+            if (dailySellerQuizQuestions.size() != DAILY_QUIZ_SIZE) {
+                dailySellerQuizQuestions.clear();
+                dailySellerQuizQuestions.addAll(createDailySellerQuiz(today, new HashSet<String>()));
+                StringBuilder ids = new StringBuilder();
+                for (SellerQuizQuestion question : dailySellerQuizQuestions) {
+                    if (ids.length() > 0) ids.append('|');
+                    ids.append(question.id);
+                }
+                quizPreferences.edit().putString(QUIZ_IDS_KEY, ids.toString())
+                        .putInt(QUIZ_POSITION_KEY, 0).putInt(QUIZ_CORRECT_KEY, 0).apply();
+            }
+            quizQuestionIndex = Math.max(0, Math.min(
+                    dailySellerQuizQuestions.size(),
+                    quizPreferences.getInt(QUIZ_POSITION_KEY, 0)));
+            quizCorrectCount = quizPreferences.getInt(QUIZ_CORRECT_KEY, 0);
+        }
+    }
+
+    private Set<String> parseQuizIds(String encoded) {
+        Set<String> ids = new HashSet<>();
+        if (encoded == null || encoded.isEmpty()) return ids;
+        for (String id : encoded.split("\\|")) {
+            if (!id.trim().isEmpty()) ids.add(id.trim());
+        }
+        return ids;
+    }
+
+    private ArrayList<SellerQuizQuestion> loadDailySellerQuiz(String encodedIds, String day) {
+        ArrayList<SellerQuizQuestion> result = new ArrayList<>();
+        Map<String, SellerQuizQuestion> bank = new HashMap<>();
+        for (SellerQuizQuestion question : buildSellerQuizBank()) bank.put(question.id, question);
+        long daySeed = getSellerQuizSeed(day);
+        if (encodedIds != null && !encodedIds.isEmpty()) {
+            for (String id : encodedIds.split("\\|")) {
+                SellerQuizQuestion original = bank.get(id);
+                if (original != null) result.add(shuffleQuizOptions(original, daySeed));
+            }
+        }
+        return result;
+    }
+
+    private long getSellerQuizSeed(String day) {
+        return day.hashCode() * 1103515245L + 12345L;
+    }
+
+    private ArrayList<SellerQuizQuestion> createDailySellerQuiz(String day, Set<String> excludedIds) {
+        ArrayList<SellerQuizQuestion> bank = buildSellerQuizBank();
+        ArrayList<SellerQuizQuestion> available = new ArrayList<>();
+        for (SellerQuizQuestion question : bank) {
+            if (excludedIds == null || !excludedIds.contains(question.id)) available.add(question);
+        }
+        // Stable per calendar day: reopening the app does not reshuffle today's test.
+        long daySeed = getSellerQuizSeed(day);
+        Collections.shuffle(available, new Random(daySeed));
+        ArrayList<SellerQuizQuestion> selected = new ArrayList<>();
+        for (int i = 0; i < Math.min(DAILY_QUIZ_SIZE, available.size()); i++) {
+            selected.add(shuffleQuizOptions(available.get(i), daySeed));
+        }
+        return selected;
+    }
+
+    private SellerQuizQuestion shuffleQuizOptions(SellerQuizQuestion source, long daySeed) {
+        ArrayList<Integer> order = new ArrayList<>();
+        for (int i = 0; i < source.options.length; i++) order.add(i);
+        Collections.shuffle(order, new Random(daySeed ^ source.id.hashCode()));
+        String[] shuffledOptions = new String[source.options.length];
+        int shuffledCorrect = 0;
+        for (int i = 0; i < order.size(); i++) {
+            int oldIndex = order.get(i);
+            shuffledOptions[i] = source.options[oldIndex];
+            if (oldIndex == source.correctIndex) shuffledCorrect = i;
+        }
+        return new SellerQuizQuestion(source.id, source.question,
+                shuffledOptions, shuffledCorrect, source.explanation);
+    }
+
+    private ArrayList<SellerQuizQuestion> buildSellerQuizBank() {
+        ArrayList<SellerQuizQuestion> bank = new ArrayList<>();
+        String[] products = {
+                "kir yuvish mashinasi", "muzlatkich", "changyutgich", "televizor",
+                "konditsioner", "divan", "gilam", "oshxona mebeli",
+                "idish yuvish mashinasi", "mikroto‘lqinli pech", "gaz plitasi",
+                "suv isitgich", "yotoqxona mebeli", "kompyuter", "elektr choynak"
+        };
+
+        String[][] contexts = {
+                {"yangi xonadoniga olayotganini aytdi", "katta oila uchun kerakligini aytdi",
+                        "kichik xonaga joylashtirmoqchi", "budjetini oldindan belgilab qo‘ygan",
+                        "oldingi mahsulotidan qulayroq model izlayapti", "kun davomida ko‘p foydalanishini aytdi"},
+                {"boshqa joyda arzonroq narx ko‘rganini aytdi", "narx budjetidan biroz yuqori ekanini bildirdi",
+                        "narx ichiga nimalar kirishini so‘radi", "chegirma bo‘lish-bo‘lmasligini so‘radi",
+                        "arzonroq model ham vazifasini bajaradimi deb so‘radi", "narxni oilasi bilan maslahatlashmoqchi"},
+                {"ikkala modelning asosiy farqini bilmoqchi", "energiya tejamkorligi muhimligini aytdi",
+                        "ko‘proq sig‘im yoki quvvat kerakligini so‘radi", "narx va kafolatni birga solishtirmoqchi",
+                        "qaysi model uzoqroq xizmat qilishini so‘radi", "faqat reklamadagi xususiyatlarga qarab tanlayapti"},
+                {"bugunoq olib ketmoqchi", "rangini va modelini aniq tanlagan", "yetkazib berish muddatini so‘radi",
+                        "saytdagi qoldiq bilan do‘kondagi qoldiqni solishtiryapti", "omborda zaxira borligini bilmoqchi",
+                        "oldindan buyurtma berish mumkinligini so‘radi"},
+                {"oylik to‘lovni bilmoqchi", "boshlang‘ich to‘lovsiz variantni so‘radi",
+                        "6 yoki 12 oylik muddatni solishtiryapti", "jami qancha to‘lashini so‘radi",
+                        "to‘lov jadvalini yozib berishni so‘radi", "shartnomadagi qo‘shimcha shartlarni aniqlashtirmoqchi"},
+                {"kafolat necha yil ekanini so‘radi", "kafolat nimalarni qamrab olishini bilmoqchi",
+                        "servis markazi qayerdaligini so‘radi", "kafolat taloni qanday to‘ldirilishini so‘radi",
+                        "kafolatning boshlanish sanasini aniqlamoqchi", "nosozlikda kimga murojaat qilishini so‘radi"},
+                {"asosiy funksiyalarini ko‘rib chiqmoqchi", "ishlash shovqinini tekshirmoqchi",
+                        "boshqaruv tugmalarini tushunmoqchi", "mahsulot hajmini ko‘z bilan baholamoqchi",
+                        "parvarishlash usulini bilmoqchi", "xavfsizlik funksiyasini tekshirmoqchi"},
+                {"mahsulot ishlashida muammo borligini aytdi", "yetkazib berilganda shikast sezganini bildirdi",
+                        "qurilma kutilganidek ishlamayotganini aytdi", "almashtirish tartibini so‘radi",
+                        "ta’mirlash muddati haqida so‘radi", "xarid hujjatini topa olmayotganini aytdi"},
+                {"foydali qo‘shimcha aksessuar bor-yo‘qligini so‘radi", "asosiy mahsulot bilan birga kerakli buyumni tanlayapti",
+                        "ortiqcha xarajat qilishni istamasligini aytdi", "parvarishlash vositasi kerakmi deb so‘radi",
+                        "o‘rnatish uchun qo‘shimcha jihoz zarurligini so‘radi", "faqat zarur narsalarni olmoqchi"},
+                {"xaridni rasmiylashtirishga tayyor", "yetkazib berish manzilini tasdiqlamoqchi",
+                        "bo‘lib to‘lashga rozilik bildirdi", "sovg‘a sifatida xarid qilmoqchi",
+                        "mahsulot rangini oxirgi marta tekshiryapti", "buyurtma tafsilotlarini qayta ko‘rib chiqmoqchi"}
+        };
+
+        String[][] options = {
+                {"Foydalanish sharoiti, kerakli xususiyatlar va budjetni aniqlashtirish.",
+                        "Avval eng qimmat modelni tavsiya qilish.",
+                        "Mijozdan so‘ramasdan o‘zingizga yoqqanini tanlash.",
+                        "Faqat chegirma bor mahsulotni ko‘rsatish."},
+                {"E'tiroz sababini tinglab, foydani dalil bilan tushuntirish va mosroq variant ko‘rsatish.",
+                        "Mijoz bilan narx ustida bahslashish.",
+                        "Boshqa do‘konni yomonlash.",
+                        "Asossiz chegirma va’da qilish."},
+                {"Muhim xususiyatlar, sifat, kafolat, sarf va narxni xolis taqqoslash.",
+                        "Faqat qimmatroq modelni maqtash.",
+                        "Farqlarni yashirish.",
+                        "Mijoz o‘rniga hech qanday izohsiz tanlash."},
+                {"Ombor hisobini yoki mas'ul xodimni tekshirib, keyin aniq javob berish.",
+                        "Tekshirmasdan bor deb va'da berish.",
+                        "Taxminiy muddat aytish.",
+                        "Mavjud emas deb yuborish."},
+                {"Boshlang‘ich to‘lov, muddat, oylik to‘lov, ustama va jami summani ochiq ko‘rsatish.",
+                        "Faqat kichik oylik to‘lovni aytish.",
+                        "Jami summani yashirish.",
+                        "Shartlarni og‘zaki noaniq tushuntirish."},
+                {"Rasmiy kafolat hujjati va tasdiqlangan shartlarni tekshirib, aniq ma'lumot berish.",
+                        "Taxminiy muddatni aytish.",
+                        "Barcha mahsulotlarda kafolat bir xil deyish.",
+                        "Mijozga internetdan o‘zi izlashni aytish."},
+                {"Mijozga kerakli funksiyani xavfsiz tarzda ko‘rsatib, o‘zi sinab ko‘rishiga imkon berish.",
+                        "Faqat reklama matnini o‘qib berish.",
+                        "Muhim funksiyalarni ko‘rsatmaslik.",
+                        "Mahsulotni ehtiyotsiz ishlatib ko‘rsatish."},
+                {"Mijozni xotirjam tinglab, holat va hujjatlarni aniqlash, belgilangan tartibda yordam berish.",
+                        "Mijozni ayblash.",
+                        "Muammoni tekshirmasdan rad etish.",
+                        "Boshqa xodimga izohsiz yuborish."},
+                {"Faqat haqiqiy foyda beradigan mos aksessuarni ixtiyoriy taklif qilish.",
+                        "Keraksiz mahsulotni majburlab qo‘shish.",
+                        "Aksessuar narxini aytmaslik.",
+                        "Asosiy mahsulotni sotmasdan turib qo‘shimcha buyumni rasmiylashtirish."},
+                {"Model, rang, soni, narx, to‘lov, yetkazish va kafolatni qayta tasdiqlash.",
+                        "Mijozga tekshirtirmasdan buyurtmani yopish.",
+                        "Faqat to‘lovni qabul qilishga shoshilish.",
+                        "Yetkazish manzilini so‘ramaslik."}
+        };
+
+        int[] correct = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+        String[] explanations = {
+                "Ehtiyojni to‘g‘ri aniqlash mos mahsulot tanlash va qaytarish xavfini kamaytiradi.",
+                "Narx e'tiroziga bosim bilan emas, savol, tushunarli dalil va mos alternativa bilan javob bering.",
+                "Xolis solishtirish mijozga ongli qaror qabul qilishga yordam beradi.",
+                "Qoldiq va muddatni faqat tekshirilgan ma'lumot asosida ayting.",
+                "To‘lov shartlarini to‘liq ochiqlash mijoz ishonchi va moliyaviy aniqlikni ta'minlaydi.",
+                "Kafolat bo‘yicha faqat rasmiy va tasdiqlangan ma'lumot berilishi kerak.",
+                "Amaliy namoyish mahsulotning foydasini tushunishga yordam beradi; xavfsizlikni unutmang.",
+                "Shikoyatni xotirjam tinglash va tartib asosida hal qilish ishonchni saqlaydi.",
+                "Qo‘shimcha taklif mijoz ehtiyojiga mos bo‘lishi, majburlashga aylanmasligi kerak.",
+                "Buyurtma tafsilotlarini yakunda tekshirish xato va tushunmovchiliklarning oldini oladi."
+        };
+
+        for (int type = 0; type < contexts.length; type++) {
+            for (int productIndex = 0; productIndex < products.length; productIndex++) {
+                for (int contextIndex = 0; contextIndex < contexts[type].length; contextIndex++) {
+                    String product = products[productIndex];
+                    String context = contexts[type][contextIndex];
+                    String question;
+                    switch (type) {
+                        case 0:
+                            question = "Mijoz " + product + " xarid qilmoqchi. U " + context
+                                    + ". Tavsiya berishdan avval nima qilasiz?";
+                            break;
+                        case 1:
+                            question = "Mijoz " + product + " narxini qimmat deb hisoblayapti. U "
+                                    + context + ". Eng to‘g‘ri javob qaysi?";
+                            break;
+                        case 2:
+                            question = "Mijoz " + product + " modellarini solishtiryapti: u "
+                                    + context + ". Qanday yordam berasiz?";
+                            break;
+                        case 3:
+                            question = "Mijoz " + product + " bo‘yicha buyurtma bermoqchi va "
+                                    + context + ". Qanday javob berish kerak?";
+                            break;
+                        case 4:
+                            question = "Mijoz " + product + " uchun bo‘lib to‘lashni ko‘rib chiqmoqda. U "
+                                    + context + ". Qaysi ma'lumotni berasiz?";
+                            break;
+                        case 5:
+                            question = "Mijoz " + product + " kafolati haqida so‘rayapti: u "
+                                    + context + ". Qanday yo‘l tutasiz?";
+                            break;
+                        case 6:
+                            question = "Mijoz " + product + "ni do‘konda ko‘rib chiqmoqda. U "
+                                    + context + ". Mahsulotni qanday namoyish etasiz?";
+                            break;
+                        case 7:
+                            question = "Xariddan keyin mijoz " + product + " yuzasidan murojaat qildi: u "
+                                    + context + ". Birinchi navbatda nima qilasiz?";
+                            break;
+                        case 8:
+                            question = "Mijoz " + product + " bilan birga qo‘shimcha buyum tanlayapti. U "
+                                    + context + ". Qanday taklif ma'qul?";
+                            break;
+                        default:
+                            question = "Mijoz " + product + "ni xarid qilish arafasida. U "
+                                    + context + ". Buyurtmani yakunlashdan oldin nima qilasiz?";
+                            break;
+                    }
+                    String id = "q" + type + "_" + productIndex + "_" + contextIndex;
+                    bank.add(new SellerQuizQuestion(id, question, options[type].clone(),
+                            correct[type], explanations[type]));
+                }
+            }
+        }
+        return bank;
+    }
+
+    private int getQuizCoinBalance() {
+        return quizPreferences == null ? 0 : quizPreferences.getInt(QUIZ_COINS_KEY, 0);
+    }
+
+    private void updateCoinBalanceLabel() {
+        if (coinBalanceLabel == null) return;
+        int balance = getQuizCoinBalance();
+        coinBalanceLabel.setText("🪙" + balance);
+        coinBalanceLabel.setContentDescription("To‘plangan tangalar: " + balance);
+    }
+
+    private void addSellerQuizSection(LinearLayout parent) {
+        GlassPanel quizPanel = new GlassPanel(this, false, 18);
+        quizPanel.setOrientation(LinearLayout.VERTICAL);
+        quizPanel.setPadding(dp(12), dp(12), dp(12), dp(12));
+        LinearLayout.LayoutParams panelParams = matchWrap();
+        panelParams.topMargin = dp(13);
+        parent.addView(quizPanel, panelParams);
+
+        LinearLayout headingRow = new LinearLayout(this);
+        headingRow.setOrientation(LinearLayout.HORIZONTAL);
+        headingRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView heading = text("🧠  SOTUVCHI BILIMINI SINANG", 10, DARK_GREEN, true);
+        heading.setLetterSpacing(0.025f);
+        headingRow.addView(heading, new LinearLayout.LayoutParams(0, dp(28), 1f));
+        TextView reward = text("+5 🪙", 10, Color.rgb(202, 151, 35), true);
+        reward.setGravity(Gravity.CENTER);
+        headingRow.addView(reward, wrapWrap());
+        quizPanel.addView(headingRow, matchWrap());
+
+        TextView quizDailyNote = text("HAR KUNI 100 TA YANGI SAVOL  ·  HAR TO‘G‘RI JAVOB +5 TANGA",
+                7, MUTED, true);
+        quizDailyNote.setPadding(0, dp(2), 0, dp(5));
+        quizDailyNote.setLetterSpacing(0.015f);
+        quizPanel.addView(quizDailyNote, matchWrap());
+
+        quizProgressLabel = text("", 8, MUTED, true);
+        quizProgressLabel.setPadding(0, dp(4), 0, dp(4));
+        quizPanel.addView(quizProgressLabel, matchWrap());
+
+        quizProgressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        quizProgressBar.setMax(DAILY_QUIZ_SIZE);
+        quizProgressBar.setProgressTintList(android.content.res.ColorStateList.valueOf(GREEN));
+        quizProgressBar.setProgressBackgroundTintList(
+                android.content.res.ColorStateList.valueOf(darkMode ? 0x664C6A58 : 0x6678A88A));
+        quizPanel.addView(quizProgressBar, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(5)));
+
+        quizQuestionText = text("", 13, TEXT, true);
+        quizQuestionText.setGravity(Gravity.TOP);
+        quizQuestionText.setLineSpacing(dp(2), 1f);
+        quizQuestionText.setPadding(0, dp(11), 0, dp(8));
+        quizPanel.addView(quizQuestionText, matchWrap());
+
+        for (int i = 0; i < quizOptionButtons.length; i++) {
+            final int optionIndex = i;
+            Button option = calculatorButton("", 10, false, true);
+            option.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+            option.setPadding(dp(10), dp(5), dp(10), dp(5));
+            option.setMinHeight(dp(43));
+            option.setMinimumHeight(dp(43));
+            option.setSingleLine(false);
+            LinearLayout.LayoutParams optionParams = matchWrap();
+            optionParams.topMargin = dp(5);
+            quizPanel.addView(option, optionParams);
+            quizOptionButtons[i] = option;
+            option.setOnClickListener(v -> answerSellerQuiz(optionIndex));
+        }
+
+        quizFeedbackText = text("", 10, MUTED, true);
+        quizFeedbackText.setGravity(Gravity.TOP);
+        quizFeedbackText.setLineSpacing(dp(2), 1f);
+        quizFeedbackText.setPadding(dp(2), dp(10), dp(2), dp(3));
+        quizFeedbackText.setVisibility(View.GONE);
+        quizPanel.addView(quizFeedbackText, matchWrap());
+
+        quizNextButton = calculatorButton("Keyingi savol  →", 10, true, false);
+        LinearLayout.LayoutParams nextParams = matchWrap();
+        nextParams.topMargin = dp(8);
+        quizPanel.addView(quizNextButton, nextParams);
+        quizNextButton.setVisibility(View.GONE);
+        quizNextButton.setOnClickListener(v -> advanceSellerQuiz());
+
+        updateSellerQuizUi();
+    }
+
+    private void styleSellerQuizOption(Button button, int state) {
+        int[] colors;
+        int stroke;
+        if (state > 0) {
+            colors = darkMode ? new int[]{0xF22FC77B, 0xE80D8050}
+                    : new int[]{0xF22BBE70, 0xE8078B45};
+            stroke = 0xEEFFFFFF;
+            button.setTextColor(Color.WHITE);
+        } else if (state < 0) {
+            colors = darkMode ? new int[]{0xF2E86C70, 0xE8AF2636}
+                    : new int[]{0xF2F06A68, 0xE8CA343D};
+            stroke = 0xEEFFFFFF;
+            button.setTextColor(Color.WHITE);
+        } else {
+            colors = darkMode ? new int[]{0xC92D473A, 0xA71D3027}
+                    : new int[]{0xEFFFFFFF, 0xCDEAF5EE};
+            stroke = 0x99FFFFFF;
+            button.setTextColor(TEXT);
+        }
+        GradientDrawable background = new GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT, colors);
+        background.setCornerRadius(dp(11));
+        background.setStroke(dp(1), stroke);
+        button.setBackground(background);
+    }
+
+    private void answerSellerQuiz(int selectedIndex) {
+        if (quizAnswered || quizCompleted || quizQuestionIndex >= dailySellerQuizQuestions.size()) return;
+        quizAnswered = true;
+        SellerQuizQuestion currentQuestion = dailySellerQuizQuestions.get(quizQuestionIndex);
+        int correctIndex = currentQuestion.correctIndex;
+        boolean correct = selectedIndex == correctIndex;
+        String rewardKey = "reward_" + getQuizTodayStamp() + "_" + currentQuestion.id;
+        boolean firstReward = correct && !quizPreferences.getBoolean(rewardKey, false);
+
+        for (int i = 0; i < quizOptionButtons.length; i++) {
+            quizOptionButtons[i].setEnabled(false);
+            if (i == correctIndex) styleSellerQuizOption(quizOptionButtons[i], 1);
+            else if (i == selectedIndex && !correct) styleSellerQuizOption(quizOptionButtons[i], -1);
+            else styleSellerQuizOption(quizOptionButtons[i], 0);
+        }
+
+        String explanation = "\nIzoh: " + currentQuestion.explanation;
+        if (firstReward) {
+            quizCorrectCount++;
+            quizPreferences.edit()
+                    .putBoolean(rewardKey, true)
+                    .putInt(QUIZ_CORRECT_KEY, quizCorrectCount)
+                    .putInt(QUIZ_COINS_KEY, getQuizCoinBalance() + 5)
+                    .apply();
+            updateCoinBalanceLabel();
+            quizFeedbackText.setText("✓  To‘g‘ri! Hisobingizga 5 tanga qo‘shildi." + explanation);
+            quizFeedbackText.setTextColor(darkMode ? 0xFF72E9A5 : 0xFF138A4C);
+        } else if (correct) {
+            quizFeedbackText.setText("✓  To‘g‘ri! Bu savol uchun bugun tanga avval berilgan." + explanation);
+            quizFeedbackText.setTextColor(darkMode ? 0xFF72E9A5 : 0xFF138A4C);
+        } else {
+            quizFeedbackText.setText("✕  Noto‘g‘ri. To‘g‘ri javob: "
+                    + currentQuestion.options[correctIndex] + "." + explanation);
+            quizFeedbackText.setTextColor(darkMode ? 0xFFFF8585 : 0xFFC52D36);
+        }
+        quizFeedbackText.setVisibility(View.VISIBLE);
+        quizNextButton.setText(quizQuestionIndex == DAILY_QUIZ_SIZE - 1
+                ? "Natijani ko‘rish  →" : "Keyingi savol  →");
+        quizNextButton.setVisibility(View.VISIBLE);
+    }
+
+    private void advanceSellerQuiz() {
+        if (quizCompleted) {
+            quizQuestionIndex = 0;
+            quizPreferences.edit().putInt(QUIZ_POSITION_KEY, 0).apply();
+            updateSellerQuizUi();
+            return;
+        }
+        quizQuestionIndex++;
+        quizPreferences.edit().putInt(QUIZ_POSITION_KEY, quizQuestionIndex).apply();
+        updateSellerQuizUi();
+    }
+
+    private void updateSellerQuizUi() {
+        if (quizProgressLabel == null || quizQuestionText == null) return;
+        quizCorrectCount = quizPreferences.getInt(QUIZ_CORRECT_KEY, 0);
+        if (quizQuestionIndex >= dailySellerQuizQuestions.size()) {
+            quizCompleted = true;
+            quizProgressLabel.setText("BUGUNGI TEST YAKUNLANDI  ·  "
+                    + dailySellerQuizQuestions.size() + "/" + dailySellerQuizQuestions.size());
+            quizProgressBar.setProgress(dailySellerQuizQuestions.size());
+            quizQuestionText.setText("Ajoyib! Bugungi 100 ta savolli viktorinani yakunladingiz.");
+            for (Button option : quizOptionButtons) option.setVisibility(View.GONE);
+            quizFeedbackText.setText("To‘g‘ri javoblar: " + quizCorrectCount + "/"
+                    + dailySellerQuizQuestions.size() + "   ·   Bugun olingan tangalar: "
+                    + (quizCorrectCount * 5) + " 🪙\nJami balans: " + getQuizCoinBalance() + " 🪙");
+            quizFeedbackText.setTextColor(darkMode ? 0xFFBDF5D2 : 0xFF147D48);
+            quizFeedbackText.setVisibility(View.VISIBLE);
+            quizNextButton.setText("Qayta mashq qilish");
+            quizNextButton.setVisibility(View.VISIBLE);
+            return;
+        }
+
+        quizCompleted = false;
+        quizAnswered = false;
+        quizProgressLabel.setText("SAVOL " + (quizQuestionIndex + 1) + "/"
+                + dailySellerQuizQuestions.size() + "   ·   To‘g‘ri javoblar: " + quizCorrectCount);
+        quizProgressBar.setProgress(quizQuestionIndex);
+        quizQuestionText.setText(dailySellerQuizQuestions.get(quizQuestionIndex).question);
+        quizFeedbackText.setVisibility(View.GONE);
+        quizNextButton.setVisibility(View.GONE);
+
+        for (int i = 0; i < quizOptionButtons.length; i++) {
+            Button option = quizOptionButtons[i];
+            option.setVisibility(View.VISIBLE);
+            option.setEnabled(true);
+            option.setText((char) ('A' + i) + ".  " + dailySellerQuizQuestions.get(quizQuestionIndex).options[i]);
+            styleSellerQuizOption(option, 0);
+        }
     }
 
     private void closeSalesInspirationDrawer() {
