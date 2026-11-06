@@ -454,8 +454,26 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(34)));
 
         TextView note = text("Ilova ko‘rinishi va tugma effektlari", 9, MUTED, false);
-        panel.addView(note, matchWrap());
-        addSpace(panel, 8);
+panel.addView(note, matchWrap());
+addSpace(panel, 8);
+
+// Google account and cloud synchronization shortcut.
+Button accountButton = calculatorButton(
+        "👤  GOOGLE AKKAUNTI VA SINXRONLASH", 10, false, true);
+panel.addView(accountButton, new LinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+
+accountButton.setOnClickListener(v -> {
+    dialog.dismiss();
+
+    android.content.Intent intent = new android.content.Intent(
+            MainActivity.this, GoogleAccountActivity.class);
+
+    intent.setAction(GoogleAccountActivity.ACTION_PROFILE);
+    startActivity(intent);
+});
+
+addSpace(panel, 8);
 
         Button themeToggle = calculatorButton(themeSettingLabel(), 11, false, true);
         panel.addView(themeToggle, new LinearLayout.LayoutParams(
