@@ -164,9 +164,10 @@ public class GoogleAccountActivity extends Activity {
                     showLogin("Kirish amalga oshmadi: " + friendlyError(detail));
                 }
             });
-        } catch (GoogleIdTokenParsingException error) {
-            showLogin("Google tokenini o‘qib bo‘lmadi. Qayta urinib ko‘ring.");
-        }
+} catch (RuntimeException error) {
+    showLogin("Google tokenini o‘qib bo‘lmadi: "
+            + friendlyError(error.getMessage()));
+}
     }
 
     private void startInitialSyncThenOpenMain() {
