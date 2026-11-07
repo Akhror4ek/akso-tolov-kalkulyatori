@@ -225,6 +225,12 @@ public class GoogleAccountActivity extends Activity {
         statusView.setLineSpacing(5, 1f);
         addSpace(card, 16);
 
+        TextView wasyt = makeButton("▦  WASYT AKKAUNTINI ULASH", false);
+        card.addView(wasyt, fullWidth(dp(44)));
+        wasyt.setOnClickListener(v ->
+                startActivity(new Intent(this, WasytAccountActivity.class)));
+
+        addSpace(card, 8);
         TextView sync = makeButton("↻  Hozir sinxronlash", true);
         card.addView(sync, fullWidth(dp(46)));
         sync.setOnClickListener(v -> {
