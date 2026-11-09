@@ -8,7 +8,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -225,7 +224,8 @@ public class WasytAccountActivity extends Activity {
         input.setHintTextColor(0xBFE7F5EC);
         input.setPadding(dp(13), 0, dp(13), 0);
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0x553FFFFFF);
+        // 0xAARRGGBB must contain exactly eight hexadecimal digits.
+        bg.setColor(0x553F5F4F);
         bg.setCornerRadius(dp(13));
         bg.setStroke(dp(1), 0x99FFFFFF);
         input.setBackground(bg);
@@ -254,7 +254,7 @@ public class WasytAccountActivity extends Activity {
     }
 
     private void addSpace(LinearLayout parent, int heightDp) {
-        View space = new View(this);
+        android.view.View space = new android.view.View(this);
         parent.addView(space, new LinearLayout.LayoutParams(1, dp(heightDp)));
     }
 
