@@ -29,12 +29,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Google Code Scanner + read-only WASYT stock catalogue lookup.
- * Mirrors the successful seller-app catalogue request observed in DevTools.
- * Uses only GET requests and never writes to WASYT or Firebase.
+ * Google Code Scanner + seller-facing WASYT stock-product search.
+ * Read-only GET requests only. No writes to WASYT or Firebase.
  */
 final class WasytBarcodeScanner {
     private static final String BASE_URL = "https://api.wasyt.uz";
+    private static final String WEB_ORIGIN = "https://app.wasyt.uz";
     private static final int CONNECT_TIMEOUT_MS = 15000;
     private static final int READ_TIMEOUT_MS = 20000;
     private static final int MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -81,8 +81,8 @@ final class WasytBarcodeScanner {
         BigDecimal stockTotal = BigDecimal.ZERO;
         boolean hasStock;
 
-        ProductAccumulator(long id, String name, String barcode, long priceAmount,
-                           String currency) {
+        ProductAccumulator(long id, String name, String barcode,
+                           long priceAmount, String currency) {
             this.id = id;
             this.name = name;
             this.barcode = barcode;
@@ -144,7 +144,7 @@ final class WasytBarcodeScanner {
                             });
                         } catch (Exception error) {
                             String message = error.getMessage() == null
-                                    ? "WASYT katalogidan mahsulot qidirishda xatolik."
+                                    ? "WASYT mahsulot qidiruvida xatolik yuz berdi."
                                     : error.getMessage();
                             MAIN.post(() -> {
                                 if (!activity.isFinishing() && !activity.isDestroyed()) {
@@ -166,44 +166,40 @@ final class WasytBarcodeScanner {
     }
 
     /**
-     * First try the exact barcode filter. If no active result is returned, use the
-     * documented common filter, which also covers additional barcodes/PLU.
-     * The with[] list intentionally mirrors the user's successful HTTP 200 request:
-     * product, category ancestors, brand, unit, stock, company, product_price, status,
-     * reserved_quantity, last_purchase_at, last_purchase_price and variants_count.
+     * V3 uses the documented stock-position list endpoint. WASYT API docs state
+     * that /company/stock/product supports filter[common] search by name, barcode
+     * and PLU. The earlier /catalog endpoint is the all-products catalog listing;
+     * the user's successful browser request only proved its unfiltered list works.
      */
     private static List<ProductInfo> searchProducts(String token, String barcode)
             throws IOException {
-        String commonWith = buildCatalogueQuery("filter[product.barcode]", barcode);
-        List<ProductInfo> found = parseCatalogueRows(
-                request("/company/stock/product/catalog?" + commonWith, token), barcode);
+        String exactQuery = buildStockProductQuery("filter[product.barcode]", barcode);
+        List<ProductInfo> found = parseStockRows(
+                request("/company/stock/product?" + exactQuery, token), barcode);
         if (!found.isEmpty()) return found;
 
-        String commonSearch = buildCatalogueQuery("filter[common]", barcode);
-        found = parseCatalogueRows(
-                request("/company/stock/product/catalog?" + commonSearch, token), barcode);
+        String commonQuery = buildStockProductQuery("filter[common]", barcode);
+        found = parseStockRows(
+                request("/company/stock/product?" + commonQuery, token), barcode);
         if (!found.isEmpty()) return found;
 
-        throw new IOException("WASYT katalogida " + barcode
-                + " shtrix-kodiga mos faol mahsulot topilmadi.");
+        throw new IOException("WASYT ombor mahsulotlari ro‘yxatida " + barcode
+                + " shtrix-kodiga mos mahsulot topilmadi.");
     }
 
-    private static String buildCatalogueQuery(String filterName, String filterValue)
+    private static String buildStockProductQuery(String filterName, String filterValue)
             throws IOException {
         StringBuilder query = new StringBuilder("page-size=20&page=1");
         addParam(query, "with[]", "product");
-        addParam(query, "with[]", "product.category.ancestors");
+        addParam(query, "with[]", "product.parent");
         addParam(query, "with[]", "product.brand");
         addParam(query, "with[]", "product.unit");
+        addParam(query, "with[]", "product.price");
         addParam(query, "with[]", "stock");
-        addParam(query, "with[]", "company");
         addParam(query, "with[]", "product_price");
-        addParam(query, "with[]", "status");
+        addParam(query, "with[]", "available_quantity");
         addParam(query, "with[]", "reserved_quantity");
-        addParam(query, "with[]", "last_purchase_at");
-        addParam(query, "with[]", "last_purchase_price");
-        addParam(query, "with[]", "variants_count");
-        addParam(query, "filter[has_variants]", "0");
+        addParam(query, "with[]", "status");
         addParam(query, filterName, filterValue);
         return query.toString();
     }
@@ -214,11 +210,11 @@ final class WasytBarcodeScanner {
         query.append(encode(key)).append('=').append(encode(value));
     }
 
-    private static List<ProductInfo> parseCatalogueRows(JSONObject response, String searchedBarcode)
+    private static List<ProductInfo> parseStockRows(JSONObject response, String searchedBarcode)
             throws IOException {
         JSONArray rows = response == null ? null : response.optJSONArray("data");
         if (rows == null) {
-            throw new IOException("WASYT katalog javobida 'data' ro‘yxati topilmadi.");
+            throw new IOException("WASYT javobida 'data' ro‘yxati topilmadi.");
         }
 
         Map<Long, ProductAccumulator> grouped = new LinkedHashMap<>();
@@ -242,7 +238,7 @@ final class WasytBarcodeScanner {
             String resultBarcode = product.optString("barcode", "").trim();
             if (resultBarcode.isEmpty()) resultBarcode = matchedBarcode;
 
-            PriceValue price = extractCatalogPrice(row, product);
+            PriceValue price = extractSalePrice(row, product);
             ProductAccumulator item = grouped.get(productId);
             if (item == null) {
                 item = new ProductAccumulator(productId, name, resultBarcode,
@@ -253,8 +249,6 @@ final class WasytBarcodeScanner {
                 item.currency = price.currency;
             }
 
-            // In the actual WASYT response the available stock is returned as row.quantity.
-            // Keep zero as a real value rather than treating it as missing.
             Object quantityValue = row.has("available_quantity")
                     ? row.opt("available_quantity") : row.opt("quantity");
             BigDecimal quantity = toDecimal(quantityValue);
@@ -277,6 +271,9 @@ final class WasytBarcodeScanner {
         String main = product.optString("barcode", "").trim();
         if (barcode.equals(main)) return main;
 
+        String industrial = product.optString("industrial_barcode", "").trim();
+        if (barcode.equals(industrial)) return industrial;
+
         JSONArray additional = product.optJSONArray("additional_barcodes");
         if (additional != null) {
             for (int i = 0; i < additional.length(); i++) {
@@ -286,8 +283,8 @@ final class WasytBarcodeScanner {
         return null;
     }
 
-    /** Sale price comes from product_price.price; purchase price is never substituted. */
-    private static PriceValue extractCatalogPrice(JSONObject row, JSONObject product) {
+    /** Sale price only; never substitute purchase costs. */
+    private static PriceValue extractSalePrice(JSONObject row, JSONObject product) {
         JSONObject price = row.optJSONObject("product_price");
         if (price == null) price = product.optJSONObject("price");
         if (price == null) return new PriceValue(0L, "");
@@ -315,6 +312,9 @@ final class WasytBarcodeScanner {
                     token.regionMatches(true, 0, "Bearer ", 0, 7) ? token : "Bearer " + token);
             connection.setRequestProperty("Accept", "application/json");
             connection.setRequestProperty("Accept-Language", "uz");
+            // Match the browser app's origin context from the verified successful request.
+            connection.setRequestProperty("Origin", WEB_ORIGIN);
+            connection.setRequestProperty("Referer", WEB_ORIGIN + "/");
             connection.setRequestProperty("User-Agent", "AKSO-Finance-Android/1.0");
 
             int status = connection.getResponseCode();
@@ -335,12 +335,12 @@ final class WasytBarcodeScanner {
             }
             if (status == 403) {
                 String detail = json.optString("message", "").trim();
-                if (detail.isEmpty()) detail = "Sotuvchi akkauntiga ushbu katalog so‘rovi uchun ruxsat berilmadi.";
-                throw new IOException("WASYT katalog so‘rovi rad etildi (HTTP 403): "
+                if (detail.isEmpty()) detail = "Sotuvchi akkauntiga ushbu ombor qidiruvi uchun ruxsat berilmadi.";
+                throw new IOException("WASYT ombor qidiruvi rad etildi (HTTP 403): "
                         + shortText(detail) + " [" + path.substring(0, path.indexOf('?')) + "]");
             }
             if (status == 404) {
-                throw new IOException("WASYT API katalog manzilini topmadi (HTTP 404).");
+                throw new IOException("WASYT API ombor mahsulotlari manzilini topmadi (HTTP 404).");
             }
             if (status == 429) {
                 throw new IOException("WASYT so‘rovlari limiti oshdi. Birozdan keyin urinib ko‘ring.");
@@ -369,9 +369,7 @@ final class WasytBarcodeScanner {
             int count;
             while ((count = input.read(buffer)) != -1) {
                 total += count;
-                if (total > MAX_RESPONSE_BYTES) {
-                    throw new IOException("WASYT javobi juda katta.");
-                }
+                if (total > MAX_RESPONSE_BYTES) throw new IOException("WASYT javobi juda katta.");
                 output.write(buffer, 0, count);
             }
             return output.toString("UTF-8");
