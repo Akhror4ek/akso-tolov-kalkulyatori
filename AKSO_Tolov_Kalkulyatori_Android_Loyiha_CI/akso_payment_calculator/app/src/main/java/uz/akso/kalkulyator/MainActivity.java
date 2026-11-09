@@ -59,6 +59,7 @@ import java.math.RoundingMode;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Locale;
+import java.util.List;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -454,26 +455,23 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(34)));
 
         TextView note = text("Ilova ko‘rinishi va tugma effektlari", 9, MUTED, false);
-panel.addView(note, matchWrap());
-addSpace(panel, 8);
+        panel.addView(note, matchWrap());
+        addSpace(panel, 8);
 
-// Google account and cloud synchronization shortcut.
-Button accountButton = calculatorButton(
-        "👤  GOOGLE AKKAUNTI VA SINXRONLASH", 10, false, true);
-panel.addView(accountButton, new LinearLayout.LayoutParams(
-        ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+        // Google account and cloud synchronization shortcut.
+        Button accountButton = calculatorButton(
+                "👤  GOOGLE AKKAUNTI VA SINXRONLASH", 10, false, true);
+        panel.addView(accountButton, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+        accountButton.setOnClickListener(v -> {
+            dialog.dismiss();
+            android.content.Intent intent = new android.content.Intent(
+                    MainActivity.this, GoogleAccountActivity.class);
+            intent.setAction(GoogleAccountActivity.ACTION_PROFILE);
+            startActivity(intent);
+        });
 
-accountButton.setOnClickListener(v -> {
-    dialog.dismiss();
-
-    android.content.Intent intent = new android.content.Intent(
-            MainActivity.this, GoogleAccountActivity.class);
-
-    intent.setAction(GoogleAccountActivity.ACTION_PROFILE);
-    startActivity(intent);
-});
-
-addSpace(panel, 8);
+        addSpace(panel, 8);
 
         Button themeToggle = calculatorButton(themeSettingLabel(), 11, false, true);
         panel.addView(themeToggle, new LinearLayout.LayoutParams(
@@ -615,6 +613,13 @@ addSpace(panel, 8);
         upfrontColumn.addView(upfrontInput, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
 
+        addSpace(card, 8);
+        Button wasytScanButton = calculatorButton(
+                "▦  WASYT shtrix-kod skaneri", 10, true, false);
+        card.addView(wasytScanButton, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(42)));
+        wasytScanButton.setOnClickListener(v -> startWasytBarcodeScan());
+
         addSpace(card, 9);
         GlassPanel remaining = new GlassPanel(this, false, 14);
         remaining.setOrientation(LinearLayout.HORIZONTAL);
@@ -646,6 +651,149 @@ addSpace(panel, 8);
         productInput.addTextChangedListener(watcher);
         upfrontInput.addTextChangedListener(watcher);
         return card;
+    }
+
+    /** Opens Google Code Scanner and looks up the scanned barcode in the connected WASYT account. */
+    private void startWasytBarcodeScan() {
+        if (WasytSecureStore.getValidToken(this) == null) {
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle("WASYT akkaunti ulanmagan")
+                    .setMessage("Mahsulotni skanerlashdan oldin WASYT sotuvchi akkauntini ulang.")
+                    .setNegativeButton("Bekor qilish", null)
+                    .setPositiveButton("WASYT akkauntini ulash", (dialog, which) ->
+                            startActivity(new android.content.Intent(
+                                    this, WasytAccountActivity.class)))
+                    .show();
+            return;
+        }
+
+        final android.app.ProgressDialog[] progress = new android.app.ProgressDialog[1];
+
+        WasytBarcodeScanner.start(this, new WasytBarcodeScanner.Listener() {
+            @Override
+            public void onScanStarted() {
+                Toast.makeText(MainActivity.this,
+                        "Kamerani mahsulot shtrix-kodiga qarating.",
+                        Toast.LENGTH_SHORT).show();
+            }
+
+            @Override
+            public void onLookupStarted(String barcode) {
+                if (isFinishing() || isDestroyed()) return;
+                progress[0] = new android.app.ProgressDialog(MainActivity.this);
+                progress[0].setTitle("WASYT");
+                progress[0].setMessage("Shtrix-kod " + barcode
+                        + " bo‘yicha mahsulot qidirilmoqda…");
+                progress[0].setIndeterminate(true);
+                progress[0].setCancelable(false);
+                progress[0].show();
+            }
+
+            @Override
+            public void onProductsFound(String barcode,
+                    List<WasytBarcodeScanner.ProductInfo> products) {
+                dismissWasytLookupProgress(progress[0]);
+                showWasytProductResults(barcode, products);
+            }
+
+            @Override
+            public void onCancelled() {
+                dismissWasytLookupProgress(progress[0]);
+            }
+
+            @Override
+            public void onError(String message) {
+                dismissWasytLookupProgress(progress[0]);
+                if (isFinishing() || isDestroyed()) return;
+                new android.app.AlertDialog.Builder(MainActivity.this)
+                        .setTitle("WASYT skaneri")
+                        .setMessage(message)
+                        .setNegativeButton("Yopish", null)
+                        .setPositiveButton("WASYT sozlamalari", (dialog, which) ->
+                                startActivity(new android.content.Intent(
+                                        MainActivity.this, WasytAccountActivity.class)))
+                        .show();
+            }
+        });
+    }
+
+    private void dismissWasytLookupProgress(android.app.ProgressDialog progress) {
+        if (progress != null && progress.isShowing()) {
+            try {
+                progress.dismiss();
+            } catch (RuntimeException ignored) {
+                // The activity may already be finishing; no action is needed.
+            }
+        }
+    }
+
+    private void showWasytProductResults(String barcode,
+            List<WasytBarcodeScanner.ProductInfo> products) {
+        if (products == null || products.isEmpty()) {
+            Toast.makeText(this, "WASYT bazasida mahsulot topilmadi.",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        if (products.size() == 1) {
+            showWasytProductDetails(products.get(0));
+            return;
+        }
+
+        String[] labels = new String[products.size()];
+        for (int i = 0; i < products.size(); i++) {
+            WasytBarcodeScanner.ProductInfo item = products.get(i);
+            String price = item.priceUzs > 0
+                    ? formatMoney(BigDecimal.valueOf(item.priceUzs)) + " so‘m"
+                    : "Narx ko‘rsatilmagan";
+            labels[i] = item.name + " — " + price;
+        }
+
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Bir nechta mahsulot topildi")
+                .setMessage("Shtrix-kod: " + barcode
+                        + "\nKerakli mahsulotni tanlang.")
+                .setItems(labels, (dialog, which) ->
+                        showWasytProductDetails(products.get(which)))
+                .setNegativeButton("Bekor qilish", null)
+                .show();
+    }
+
+    private void showWasytProductDetails(WasytBarcodeScanner.ProductInfo product) {
+        String priceText = product.priceUzs > 0
+                ? formatMoney(BigDecimal.valueOf(product.priceUzs)) + " so‘m"
+                : "WASYT’da sotuv narxi topilmadi";
+        String stockText = product.stockQuantity == null
+                || product.stockQuantity.trim().isEmpty()
+                ? "Ombor qoldig‘i: ko‘rsatilmagan"
+                : "Ombor qoldig‘i: " + product.stockQuantity;
+
+        String message = "Shtrix-kod: " + product.barcode
+                + "\nSotuv narxi: " + priceText
+                + "\n" + stockText
+                + "\n\nNarxni AKSO Finance kalkulyatoriga kiritasizmi?";
+
+        android.app.AlertDialog.Builder builder =
+                new android.app.AlertDialog.Builder(this)
+                        .setTitle(product.name)
+                        .setMessage(message)
+                        .setNegativeButton("Bekor qilish", null);
+
+        if (product.priceUzs > 0) {
+            builder.setPositiveButton("Narxni kalkulyatorga kiritish",
+                    (dialog, which) -> {
+                        productInput.setText(String.valueOf(product.priceUzs));
+                        normalizeAmountInput(productInput);
+                        productInput.requestFocus();
+                        recalculate();
+                        Toast.makeText(this,
+                                "Mahsulot narxi kalkulyatorga kiritildi.",
+                                Toast.LENGTH_SHORT).show();
+                    });
+        } else {
+            builder.setPositiveButton("Yopish", null);
+        }
+        builder.show();
     }
 
     private View buildPlanCard(int index) {
