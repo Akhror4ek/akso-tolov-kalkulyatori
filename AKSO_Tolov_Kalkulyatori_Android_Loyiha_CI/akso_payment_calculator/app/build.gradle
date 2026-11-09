@@ -30,6 +30,8 @@ dependencies {
     implementation 'com.google.android.libraries.identity.googleid:googleid:1.2.1'
 
     // WorkManager's Worker exposes Guava ListenableFuture in its Java API.
-    // Use the Android Guava artifact (not the empty listenablefuture compatibility stub).
     implementation 'com.google.guava:guava:33.7.2-android'
+
+    // Google Code Scanner: camera-based barcode reading without CAMERA permission.
+    implementation 'com.google.android.gms:play-services-code-scanner:16.1.0'
 }
