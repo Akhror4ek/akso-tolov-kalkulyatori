@@ -743,9 +743,7 @@ public class MainActivity extends Activity {
         String[] labels = new String[products.size()];
         for (int i = 0; i < products.size(); i++) {
             WasytBarcodeScanner.ProductInfo item = products.get(i);
-            String price = item.priceUzs > 0
-                    ? formatMoney(BigDecimal.valueOf(item.priceUzs)) + " so‘m"
-                    : "Narx ko‘rsatilmagan";
+            String price = formatWasytPrice(item);
             labels[i] = item.name + " — " + price;
         }
 
@@ -760,9 +758,7 @@ public class MainActivity extends Activity {
     }
 
     private void showWasytProductDetails(WasytBarcodeScanner.ProductInfo product) {
-        String priceText = product.priceUzs > 0
-                ? formatMoney(BigDecimal.valueOf(product.priceUzs)) + " so‘m"
-                : "WASYT’da sotuv narxi topilmadi";
+        String priceText = formatWasytPrice(product);
         String stockText = product.stockQuantity == null
                 || product.stockQuantity.trim().isEmpty()
                 ? "Ombor qoldig‘i: ko‘rsatilmagan"
@@ -779,10 +775,10 @@ public class MainActivity extends Activity {
                         .setMessage(message)
                         .setNegativeButton("Bekor qilish", null);
 
-        if (product.priceUzs > 0) {
+        if (product.hasUzsPrice()) {
             builder.setPositiveButton("Narxni kalkulyatorga kiritish",
                     (dialog, which) -> {
-                        productInput.setText(String.valueOf(product.priceUzs));
+                        productInput.setText(String.valueOf(product.priceAmount));
                         normalizeAmountInput(productInput);
                         productInput.requestFocus();
                         recalculate();
@@ -792,8 +788,21 @@ public class MainActivity extends Activity {
                     });
         } else {
             builder.setPositiveButton("Yopish", null);
+            if (product.hasPrice() && !product.hasUzsPrice()) {
+                message += "\n\nNarx UZSda emas, shuning uchun kalkulyatorga avtomatik kiritilmaydi.";
+                builder.setMessage(message);
+            }
         }
         builder.show();
+    }
+
+    private String formatWasytPrice(WasytBarcodeScanner.ProductInfo product) {
+        if (product == null || !product.hasPrice()) return "Narx ko‘rsatilmagan";
+        String amount = formatMoney(BigDecimal.valueOf(product.priceAmount));
+        if ("uzs".equalsIgnoreCase(product.currency)) return amount + " so‘m";
+        String currency = product.currency == null || product.currency.trim().isEmpty()
+                ? "valyuta noma’lum" : product.currency.toUpperCase(java.util.Locale.ROOT);
+        return amount + " " + currency;
     }
 
     private View buildPlanCard(int index) {

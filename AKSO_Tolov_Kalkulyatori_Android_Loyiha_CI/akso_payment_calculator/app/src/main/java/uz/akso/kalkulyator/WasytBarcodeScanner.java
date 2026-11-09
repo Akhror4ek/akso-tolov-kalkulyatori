@@ -23,15 +23,15 @@ import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Google Code Scanner + read-only WASYT product lookup.
- * Uses the stock/catalog read endpoint rather than the product-admin list endpoint,
- * so seller accounts with catalog-search access can use the scanner.
- * Does not store product credentials or send them to Firebase.
+ * Google Code Scanner + read-only WASYT stock catalogue lookup.
+ * Mirrors the successful seller-app catalogue request observed in DevTools.
+ * Uses only GET requests and never writes to WASYT or Firebase.
  */
 final class WasytBarcodeScanner {
     private static final String BASE_URL = "https://api.wasyt.uz";
@@ -54,32 +54,49 @@ final class WasytBarcodeScanner {
         final long id;
         final String name;
         final String barcode;
-        final long priceUzs;
+        final long priceAmount;
+        final String currency;
         final String stockQuantity;
 
-        ProductInfo(long id, String name, String barcode, long priceUzs,
-                    String stockQuantity) {
+        ProductInfo(long id, String name, String barcode, long priceAmount,
+                    String currency, String stockQuantity) {
             this.id = id;
             this.name = name;
             this.barcode = barcode;
-            this.priceUzs = priceUzs;
+            this.priceAmount = priceAmount;
+            this.currency = currency == null ? "" : currency.trim().toLowerCase(Locale.ROOT);
             this.stockQuantity = stockQuantity;
         }
+
+        boolean hasPrice() { return priceAmount > 0; }
+        boolean hasUzsPrice() { return hasPrice() && "uzs".equalsIgnoreCase(currency); }
     }
 
     private static final class ProductAccumulator {
         final long id;
         final String name;
         final String barcode;
-        long priceUzs;
+        long priceAmount;
+        String currency;
         BigDecimal stockTotal = BigDecimal.ZERO;
         boolean hasStock;
 
-        ProductAccumulator(long id, String name, String barcode, long priceUzs) {
+        ProductAccumulator(long id, String name, String barcode, long priceAmount,
+                           String currency) {
             this.id = id;
             this.name = name;
             this.barcode = barcode;
-            this.priceUzs = priceUzs;
+            this.priceAmount = priceAmount;
+            this.currency = currency == null ? "" : currency;
+        }
+    }
+
+    private static final class PriceValue {
+        final long amount;
+        final String currency;
+        PriceValue(long amount, String currency) {
+            this.amount = amount;
+            this.currency = currency == null ? "" : currency;
         }
     }
 
@@ -106,7 +123,6 @@ final class WasytBarcodeScanner {
 
         GmsBarcodeScanner scanner = GmsBarcodeScanning.getClient(activity, options);
         listener.onScanStarted();
-
         scanner.startScan()
                 .addOnSuccessListener(barcode -> {
                     String rawValue = barcode == null ? null : barcode.getRawValue();
@@ -117,7 +133,6 @@ final class WasytBarcodeScanner {
 
                     String code = rawValue.trim();
                     listener.onLookupStarted(code);
-
                     ExecutorService executor = Executors.newSingleThreadExecutor();
                     executor.execute(() -> {
                         try {
@@ -129,7 +144,7 @@ final class WasytBarcodeScanner {
                             });
                         } catch (Exception error) {
                             String message = error.getMessage() == null
-                                    ? "WASYT bazasidan mahsulot qidirishda xatolik."
+                                    ? "WASYT katalogidan mahsulot qidirishda xatolik."
                                     : error.getMessage();
                             MAIN.post(() -> {
                                 if (!activity.isFinishing() && !activity.isDestroyed()) {
@@ -151,33 +166,59 @@ final class WasytBarcodeScanner {
     }
 
     /**
-     * Seller-facing WASYT catalogue endpoint. The previous implementation called
-     * /company/product/product, which is the product-administration list route and
-     * can return HTTP 403 for a seller who only has catalogue search permissions.
+     * First try the exact barcode filter. If no active result is returned, use the
+     * documented common filter, which also covers additional barcodes/PLU.
+     * The with[] list intentionally mirrors the user's successful HTTP 200 request:
+     * product, category ancestors, brand, unit, stock, company, product_price, status,
+     * reserved_quantity, last_purchase_at, last_purchase_price and variants_count.
      */
     private static List<ProductInfo> searchProducts(String token, String barcode)
             throws IOException {
-        String encoded = encode(barcode);
-        String baseQuery = "&with[]=product&with[]=product.price&with[]=product_price"
-                + "&with[]=available_quantity&page-size=20";
+        String commonWith = buildCatalogueQuery("filter[product.barcode]", barcode);
+        List<ProductInfo> found = parseCatalogueRows(
+                request("/company/stock/product/catalog?" + commonWith, token), barcode);
+        if (!found.isEmpty()) return found;
 
-        // First try the exact product barcode filter documented for the stock catalogue.
-        JSONObject response = request(
-                "/company/stock/product/catalog?filter[product.barcode]="
-                        + encoded + baseQuery, token);
-        JSONArray rows = dataRows(response);
+        String commonSearch = buildCatalogueQuery("filter[common]", barcode);
+        found = parseCatalogueRows(
+                request("/company/stock/product/catalog?" + commonSearch, token), barcode);
+        if (!found.isEmpty()) return found;
 
-        // The common filter also searches the catalogue's general product identifiers.
-        // It is useful for additional/industrial barcodes supported by WASYT search.
-        if (rows == null || rows.length() == 0) {
-            response = request("/company/stock/product/catalog?filter[common]="
-                    + encoded + baseQuery, token);
-            rows = dataRows(response);
-        }
+        throw new IOException("WASYT katalogida " + barcode
+                + " shtrix-kodiga mos faol mahsulot topilmadi.");
+    }
 
-        if (rows == null || rows.length() == 0) {
-            throw new IOException("WASYT katalogida " + barcode
-                    + " shtrix-kodiga mos mahsulot topilmadi.");
+    private static String buildCatalogueQuery(String filterName, String filterValue)
+            throws IOException {
+        StringBuilder query = new StringBuilder("page-size=20&page=1");
+        addParam(query, "with[]", "product");
+        addParam(query, "with[]", "product.category.ancestors");
+        addParam(query, "with[]", "product.brand");
+        addParam(query, "with[]", "product.unit");
+        addParam(query, "with[]", "stock");
+        addParam(query, "with[]", "company");
+        addParam(query, "with[]", "product_price");
+        addParam(query, "with[]", "status");
+        addParam(query, "with[]", "reserved_quantity");
+        addParam(query, "with[]", "last_purchase_at");
+        addParam(query, "with[]", "last_purchase_price");
+        addParam(query, "with[]", "variants_count");
+        addParam(query, "filter[has_variants]", "0");
+        addParam(query, filterName, filterValue);
+        return query.toString();
+    }
+
+    private static void addParam(StringBuilder query, String key, String value)
+            throws IOException {
+        if (query.length() > 0) query.append('&');
+        query.append(encode(key)).append('=').append(encode(value));
+    }
+
+    private static List<ProductInfo> parseCatalogueRows(JSONObject response, String searchedBarcode)
+            throws IOException {
+        JSONArray rows = response == null ? null : response.optJSONArray("data");
+        if (rows == null) {
+            throw new IOException("WASYT katalog javobida 'data' ro‘yxati topilmadi.");
         }
 
         Map<Long, ProductAccumulator> grouped = new LinkedHashMap<>();
@@ -186,15 +227,10 @@ final class WasytBarcodeScanner {
             if (row == null) continue;
 
             JSONObject product = row.optJSONObject("product");
-            if (product == null) product = row;
-            if (product.optBoolean("is_deleted", false)) continue;
+            if (product == null || product.optBoolean("is_deleted", false)) continue;
 
-            String mainBarcode = product.optString("barcode", "").trim();
-            String industrialBarcode = product.optString("industrial_barcode", "").trim();
-            String matchedBarcode = findMatchingBarcode(product, barcode);
-            boolean hasBarcodeData = !mainBarcode.isEmpty() || !industrialBarcode.isEmpty()
-                    || product.optJSONArray("additional_barcodes") != null;
-            if (matchedBarcode == null && hasBarcodeData) continue;
+            String matchedBarcode = findMatchingBarcode(product, searchedBarcode);
+            if (matchedBarcode == null) continue;
 
             long productId = product.optLong("id", row.optLong("product_id", -1L));
             if (productId <= 0) continue;
@@ -203,20 +239,22 @@ final class WasytBarcodeScanner {
             if (name.isEmpty()) name = product.optString("full_text", "").trim();
             if (name.isEmpty()) name = "Nomsiz mahsulot";
 
-            String resultBarcode = !mainBarcode.isEmpty() ? mainBarcode
-                    : (!industrialBarcode.isEmpty() ? industrialBarcode : barcode);
+            String resultBarcode = product.optString("barcode", "").trim();
+            if (resultBarcode.isEmpty()) resultBarcode = matchedBarcode;
 
-            long priceUzs = extractCatalogPriceUzs(row, product);
-            if (priceUzs <= 0) priceUzs = lookupPriceUzs(token, productId);
-
+            PriceValue price = extractCatalogPrice(row, product);
             ProductAccumulator item = grouped.get(productId);
             if (item == null) {
-                item = new ProductAccumulator(productId, name, resultBarcode, priceUzs);
+                item = new ProductAccumulator(productId, name, resultBarcode,
+                        price.amount, price.currency);
                 grouped.put(productId, item);
-            } else if (item.priceUzs <= 0 && priceUzs > 0) {
-                item.priceUzs = priceUzs;
+            } else if (item.priceAmount <= 0 && price.amount > 0) {
+                item.priceAmount = price.amount;
+                item.currency = price.currency;
             }
 
+            // In the actual WASYT response the available stock is returned as row.quantity.
+            // Keep zero as a real value rather than treating it as missing.
             Object quantityValue = row.has("available_quantity")
                     ? row.opt("available_quantity") : row.opt("quantity");
             BigDecimal quantity = toDecimal(quantityValue);
@@ -226,35 +264,18 @@ final class WasytBarcodeScanner {
             }
         }
 
-        if (grouped.isEmpty()) {
-            throw new IOException("WASYT katalogidan mahsulot topilmadi. Shtrix-kod: " + barcode);
-        }
-
         ArrayList<ProductInfo> results = new ArrayList<>();
         for (ProductAccumulator item : grouped.values()) {
             String stock = item.hasStock ? normalizeQuantity(item.stockTotal) : "";
             results.add(new ProductInfo(item.id, item.name, item.barcode,
-                    item.priceUzs, stock));
+                    item.priceAmount, item.currency, stock));
         }
         return results;
-    }
-
-    private static JSONArray dataRows(JSONObject response) {
-        if (response == null) return null;
-        JSONArray rows = response.optJSONArray("data");
-        if (rows == null) {
-            JSONObject nested = response.optJSONObject("data");
-            if (nested != null) rows = nested.optJSONArray("data");
-        }
-        return rows;
     }
 
     private static String findMatchingBarcode(JSONObject product, String barcode) {
         String main = product.optString("barcode", "").trim();
         if (barcode.equals(main)) return main;
-
-        String industrial = product.optString("industrial_barcode", "").trim();
-        if (barcode.equals(industrial)) return industrial;
 
         JSONArray additional = product.optJSONArray("additional_barcodes");
         if (additional != null) {
@@ -265,81 +286,21 @@ final class WasytBarcodeScanner {
         return null;
     }
 
-    private static long extractCatalogPriceUzs(JSONObject row, JSONObject product) {
-        long value = extractPriceUzs(row.optJSONObject("product_price"));
-        if (value > 0) return value;
-        value = extractPriceUzs(product.optJSONObject("price"));
-        if (value > 0) return value;
-        value = extractPriceUzs(row);
-        if (value > 0) return value;
-        return extractPriceUzs(product);
-    }
+    /** Sale price comes from product_price.price; purchase price is never substituted. */
+    private static PriceValue extractCatalogPrice(JSONObject row, JSONObject product) {
+        JSONObject price = row.optJSONObject("product_price");
+        if (price == null) price = product.optJSONObject("price");
+        if (price == null) return new PriceValue(0L, "");
 
-    private static long lookupPriceUzs(String token, long productId) {
+        BigDecimal amount = toDecimal(price.opt("price"));
+        if (amount == null) amount = toDecimal(price.opt("price_uzs"));
+        if (amount == null || amount.signum() <= 0) return new PriceValue(0L, "");
         try {
-            String path = "/company/product/price?filter[product_id]=" + productId
-                    + "&sort[0]=-id&page-size=20";
-            JSONObject response = request(path, token);
-            JSONArray rows = response.optJSONArray("data");
-            if (rows == null) return 0L;
-
-            for (int i = 0; i < rows.length(); i++) {
-                JSONObject price = rows.optJSONObject(i);
-                if (price == null) continue;
-                long uzs = readLong(price, "price_uzs");
-                if (uzs <= 0) uzs = readLong(price, "effective_min_price_uzs");
-                if (uzs <= 0 && "uzs".equalsIgnoreCase(price.optString("currency", ""))) {
-                    uzs = readLong(price, "price");
-                }
-                if (uzs > 0) return uzs;
-            }
-        } catch (Exception ignored) {
-            // Price may already be embedded in the catalogue row, or separate price
-            // permission may not be assigned. In that case show it as unavailable.
-        }
-        return 0L;
-    }
-
-    private static long extractPriceUzs(JSONObject object) {
-        if (object == null) return 0L;
-        long direct = readLong(object, "price_uzs");
-        if (direct > 0) return direct;
-
-        long minimum = readLong(object, "effective_min_price_uzs");
-        if (minimum > 0) return minimum;
-
-        long price = readLong(object, "price");
-        if (price > 0 && "uzs".equalsIgnoreCase(object.optString("currency", ""))) {
-            return price;
-        }
-        return 0L;
-    }
-
-    private static long readLong(JSONObject object, String key) {
-        if (object == null || !object.has(key) || object.isNull(key)) return 0L;
-        BigDecimal value = toDecimal(object.opt(key));
-        if (value == null) return 0L;
-        try {
-            return value.setScale(0, RoundingMode.HALF_UP).longValueExact();
+            long rounded = amount.setScale(0, RoundingMode.HALF_UP).longValueExact();
+            return new PriceValue(rounded, price.optString("currency", "uzs"));
         } catch (ArithmeticException ignored) {
-            return 0L;
+            return new PriceValue(0L, "");
         }
-    }
-
-    private static BigDecimal toDecimal(Object value) {
-        if (value == null || value == JSONObject.NULL) return null;
-        try {
-            if (value instanceof Number) return new BigDecimal(value.toString());
-            String raw = String.valueOf(value).trim().replace(" ", "").replace(",", ".");
-            if (raw.isEmpty()) return null;
-            return new BigDecimal(raw);
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private static String normalizeQuantity(BigDecimal value) {
-        return value.stripTrailingZeros().toPlainString();
     }
 
     private static JSONObject request(String path, String token) throws IOException {
@@ -374,23 +335,19 @@ final class WasytBarcodeScanner {
             }
             if (status == 403) {
                 String detail = json.optString("message", "").trim();
-                if (detail.isEmpty()) {
-                    throw new IOException("WASYT ushbu mahsulot katalogi so‘roviga ruxsat bermadi (HTTP 403). "
-                            + "Sotuvchi rolida company.stock.product.catalog.index va narxni ko‘rish huquqini tekshiring.");
-                }
-                throw new IOException("WASYT ruxsat bermadi (HTTP 403): " + shortText(detail));
+                if (detail.isEmpty()) detail = "Sotuvchi akkauntiga ushbu katalog so‘rovi uchun ruxsat berilmadi.";
+                throw new IOException("WASYT katalog so‘rovi rad etildi (HTTP 403): "
+                        + shortText(detail) + " [" + path.substring(0, path.indexOf('?')) + "]");
             }
             if (status == 404) {
-                throw new IOException("WASYT API mahsulot manzilini topmadi (HTTP 404).");
+                throw new IOException("WASYT API katalog manzilini topmadi (HTTP 404).");
             }
             if (status == 429) {
                 throw new IOException("WASYT so‘rovlari limiti oshdi. Birozdan keyin urinib ko‘ring.");
             }
             if (status < 200 || status >= 300) {
-                String message = json.optString("message", "");
-                if (message.trim().isEmpty()) {
-                    message = "WASYT server xatoligi (HTTP " + status + ").";
-                }
+                String message = json.optString("message", "").trim();
+                if (message.isEmpty()) message = "WASYT server xatoligi (HTTP " + status + ").";
                 throw new IOException(shortText(message));
             }
             return json;
@@ -425,8 +382,24 @@ final class WasytBarcodeScanner {
         try {
             return URLEncoder.encode(value, "UTF-8");
         } catch (Exception error) {
-            throw new IOException("Shtrix-kodni tayyorlab bo‘lmadi.", error);
+            throw new IOException("So‘rov parametrini kodlab bo‘lmadi.", error);
         }
+    }
+
+    private static BigDecimal toDecimal(Object value) {
+        if (value == null || value == JSONObject.NULL) return null;
+        try {
+            if (value instanceof Number) return new BigDecimal(value.toString());
+            String raw = String.valueOf(value).trim().replace(" ", "").replace(",", ".");
+            if (raw.isEmpty()) return null;
+            return new BigDecimal(raw);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static String normalizeQuantity(BigDecimal value) {
+        return value.stripTrailingZeros().toPlainString();
     }
 
     private static String shortText(String value) {
