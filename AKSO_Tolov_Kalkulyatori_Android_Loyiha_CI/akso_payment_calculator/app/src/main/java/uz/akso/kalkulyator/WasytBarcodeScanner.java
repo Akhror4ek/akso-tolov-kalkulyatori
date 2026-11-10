@@ -29,7 +29,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Google Code Scanner + seller-facing WASYT stock-product search.
+ * Google Code Scanner + seller-facing WASYT catalogue search.
  * Read-only GET requests only. No writes to WASYT or Firebase.
  */
 final class WasytBarcodeScanner {
@@ -37,7 +37,7 @@ final class WasytBarcodeScanner {
     private static final String WEB_ORIGIN = "https://app.wasyt.uz";
     private static final int CONNECT_TIMEOUT_MS = 15000;
     private static final int READ_TIMEOUT_MS = 20000;
-    private static final int MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+    private static final int MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     private WasytBarcodeScanner() { }
@@ -166,42 +166,108 @@ final class WasytBarcodeScanner {
     }
 
     /**
-     * V3 uses the documented stock-position list endpoint. WASYT API docs state
-     * that /company/stock/product supports filter[common] search by name, barcode
-     * and PLU. The earlier /catalog endpoint is the all-products catalog listing;
-     * the user's successful browser request only proved its unfiltered list works.
+     * Uses the exact seller catalogue URL observed in the WASYT web app with HTTP 200.
+     * The seller account can read the unfiltered catalogue, while the filtered stock
+     * endpoints tested in earlier builds returned HTTP 403. Therefore barcode matching
+     * is performed locally over paginated catalogue results; no privileged endpoint is used.
      */
     private static List<ProductInfo> searchProducts(String token, String barcode)
             throws IOException {
-        String exactQuery = buildStockProductQuery("filter[product.barcode]", barcode);
-        List<ProductInfo> found = parseStockRows(
-                request("/company/stock/product?" + exactQuery, token), barcode);
-        if (!found.isEmpty()) return found;
+        int pageSize = 100;
+        JSONObject firstResponse;
 
-        String commonQuery = buildStockProductQuery("filter[common]", barcode);
-        found = parseStockRows(
-                request("/company/stock/product?" + commonQuery, token), barcode);
-        if (!found.isEmpty()) return found;
+        // Try a larger page size to reduce requests. If the server rejects it,
+        // retry using the exact page-size=20 value verified in the WASYT browser.
+        try {
+            firstResponse = request(buildCataloguePath(pageSize, 1), token);
+        } catch (IOException largerPageError) {
+            pageSize = 20;
+            try {
+                firstResponse = request(buildCataloguePath(pageSize, 1), token);
+            } catch (IOException verifiedPageError) {
+                throw new IOException("WASYT katalogiga ulanish rad etildi. "
+                        + shortText(verifiedPageError.getMessage()), verifiedPageError);
+            }
+        }
 
-        throw new IOException("WASYT ombor mahsulotlari ro‘yxatida " + barcode
-                + " shtrix-kodiga mos mahsulot topilmadi.");
+        JSONArray firstRows = firstResponse.optJSONArray("data");
+        if (firstRows == null) {
+            throw new IOException("WASYT katalog javobida 'data' ro‘yxati topilmadi.");
+        }
+
+        JSONObject meta = firstResponse.optJSONObject("meta");
+        int actualPageSize = meta == null ? pageSize : meta.optInt("per_page", pageSize);
+        if (actualPageSize <= 0) actualPageSize = pageSize;
+        int lastPage = meta == null ? 1 : meta.optInt("last_page", 1);
+        if (lastPage < 1) lastPage = 1;
+        // Safety cap against malformed pagination metadata or runaway requests.
+        lastPage = Math.min(lastPage, 250);
+
+        Map<Long, ProductAccumulator> grouped = new LinkedHashMap<>();
+        mergePage(grouped, parseStockRows(firstResponse, barcode));
+
+        for (int page = 2; page <= lastPage; page++) {
+            JSONObject response = request(buildCataloguePath(actualPageSize, page), token);
+            JSONArray rows = response.optJSONArray("data");
+            if (rows == null) {
+                throw new IOException("WASYT katalogining " + page
+                        + "-sahifasida 'data' ro‘yxati topilmadi.");
+            }
+            mergePage(grouped, parseStockRows(response, barcode));
+            if (rows.length() == 0) break;
+        }
+
+        ArrayList<ProductInfo> results = new ArrayList<>();
+        for (ProductAccumulator item : grouped.values()) {
+            String stock = item.hasStock ? normalizeQuantity(item.stockTotal) : "";
+            results.add(new ProductInfo(item.id, item.name, item.barcode,
+                    item.priceAmount, item.currency, stock));
+        }
+        if (results.isEmpty()) {
+            throw new IOException("WASYT katalogida " + barcode
+                    + " shtrix-kodiga mos faol mahsulot topilmadi.");
+        }
+        return results;
     }
 
-    private static String buildStockProductQuery(String filterName, String filterValue)
-            throws IOException {
-        StringBuilder query = new StringBuilder("page-size=20&page=1");
+    private static String buildCataloguePath(int pageSize, int page) throws IOException {
+        StringBuilder query = new StringBuilder("page-size=")
+                .append(pageSize).append("&page=").append(page);
+        // These fields mirror the successful request captured from app.wasyt.uz.
         addParam(query, "with[]", "product");
-        addParam(query, "with[]", "product.parent");
+        addParam(query, "with[]", "product.category.ancestors");
         addParam(query, "with[]", "product.brand");
         addParam(query, "with[]", "product.unit");
-        addParam(query, "with[]", "product.price");
         addParam(query, "with[]", "stock");
+        addParam(query, "with[]", "company");
         addParam(query, "with[]", "product_price");
-        addParam(query, "with[]", "available_quantity");
-        addParam(query, "with[]", "reserved_quantity");
         addParam(query, "with[]", "status");
-        addParam(query, filterName, filterValue);
-        return query.toString();
+        addParam(query, "with[]", "reserved_quantity");
+        addParam(query, "with[]", "last_purchase_at");
+        addParam(query, "with[]", "last_purchase_price");
+        addParam(query, "with[]", "variants_count");
+        addParam(query, "filter[has_variants]", "0");
+        return "/company/stock/product/catalog?" + query;
+    }
+
+    private static void mergePage(Map<Long, ProductAccumulator> grouped,
+                                  List<ProductInfo> pageProducts) {
+        for (ProductInfo product : pageProducts) {
+            ProductAccumulator item = grouped.get(product.id);
+            if (item == null) {
+                item = new ProductAccumulator(product.id, product.name, product.barcode,
+                        product.priceAmount, product.currency);
+                grouped.put(product.id, item);
+            } else if (item.priceAmount <= 0 && product.priceAmount > 0) {
+                item.priceAmount = product.priceAmount;
+                item.currency = product.currency;
+            }
+            BigDecimal quantity = toDecimal(product.stockQuantity);
+            if (quantity != null) {
+                item.stockTotal = item.stockTotal.add(quantity);
+                item.hasStock = true;
+            }
+        }
     }
 
     private static void addParam(StringBuilder query, String key, String value)
@@ -336,7 +402,7 @@ final class WasytBarcodeScanner {
             if (status == 403) {
                 String detail = json.optString("message", "").trim();
                 if (detail.isEmpty()) detail = "Sotuvchi akkauntiga ushbu ombor qidiruvi uchun ruxsat berilmadi.";
-                throw new IOException("WASYT ombor qidiruvi rad etildi (HTTP 403): "
+                throw new IOException("WASYT katalog so‘rovi rad etildi (HTTP 403): "
                         + shortText(detail) + " [" + path.substring(0, path.indexOf('?')) + "]");
             }
             if (status == 404) {
