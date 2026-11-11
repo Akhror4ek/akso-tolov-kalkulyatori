@@ -620,6 +620,15 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(42)));
         wasytScanButton.setOnClickListener(v -> startWasytBarcodeScan());
 
+        addSpace(card, 7);
+        Button wasytSellerButton = calculatorButton(
+                "🛒  WASYT SOTUV MODULI", 10, true, false);
+        card.addView(wasytSellerButton, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(42)));
+        wasytSellerButton.setOnClickListener(v ->
+                startActivity(new android.content.Intent(
+                        MainActivity.this, WasytSellerActivity.class)));
+
         addSpace(card, 9);
         GlassPanel remaining = new GlassPanel(this, false, 14);
         remaining.setOrientation(LinearLayout.HORIZONTAL);
