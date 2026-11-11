@@ -3,7 +3,7 @@ name: Build AKSO Tolov APK
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, feature/wasyt-seller-workflow]
 
 permissions:
   contents: read
