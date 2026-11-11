@@ -136,7 +136,7 @@ final class WasytBarcodeScanner {
                     ExecutorService executor = Executors.newSingleThreadExecutor();
                     executor.execute(() -> {
                         try {
-                            List<ProductInfo> products = searchProducts(token, code);
+                            List<ProductInfo> products = searchProducts(token, code, true);
                             MAIN.post(() -> {
                                 if (!activity.isFinishing() && !activity.isDestroyed()) {
                                     listener.onProductsFound(code, products);
@@ -171,7 +171,21 @@ final class WasytBarcodeScanner {
      * endpoints tested in earlier builds returned HTTP 403. Therefore barcode matching
      * is performed locally over paginated catalogue results; no privileged endpoint is used.
      */
-    private static List<ProductInfo> searchProducts(String token, String barcode)
+    /**
+     * Searches the same seller-readable catalogue by product name or barcode.
+     * The currently verified seller catalogue response is paginated, so matching
+     * is performed locally over those pages instead of calling restricted stats routes.
+     */
+    static List<ProductInfo> searchByText(String token, String query) throws IOException {
+        String term = query == null ? "" : query.trim();
+        if (term.length() < 2) {
+            throw new IOException("Mahsulot nomidan kamida 2 ta belgi yoki to'liq shtrix-kod kiriting.");
+        }
+        return searchProducts(token, term, false);
+    }
+
+    private static List<ProductInfo> searchProducts(String token, String query,
+                                                     boolean barcodeOnly)
             throws IOException {
         int pageSize = 100;
         JSONObject firstResponse;
@@ -204,7 +218,7 @@ final class WasytBarcodeScanner {
         lastPage = Math.min(lastPage, 250);
 
         Map<Long, ProductAccumulator> grouped = new LinkedHashMap<>();
-        mergePage(grouped, parseStockRows(firstResponse, barcode));
+        mergePage(grouped, parseStockRows(firstResponse, query, barcodeOnly));
 
         for (int page = 2; page <= lastPage; page++) {
             JSONObject response = request(buildCataloguePath(actualPageSize, page), token);
@@ -213,7 +227,7 @@ final class WasytBarcodeScanner {
                 throw new IOException("WASYT katalogining " + page
                         + "-sahifasida 'data' ro‘yxati topilmadi.");
             }
-            mergePage(grouped, parseStockRows(response, barcode));
+            mergePage(grouped, parseStockRows(response, query, barcodeOnly));
             if (rows.length() == 0) break;
         }
 
@@ -224,8 +238,8 @@ final class WasytBarcodeScanner {
                     item.priceAmount, item.currency, stock));
         }
         if (results.isEmpty()) {
-            throw new IOException("WASYT katalogida " + barcode
-                    + " shtrix-kodiga mos faol mahsulot topilmadi.");
+            throw new IOException("WASYT katalogida \"" + query
+                    + "\" bo'yicha mos faol mahsulot topilmadi.");
         }
         return results;
     }
@@ -276,7 +290,8 @@ final class WasytBarcodeScanner {
         query.append(encode(key)).append('=').append(encode(value));
     }
 
-    private static List<ProductInfo> parseStockRows(JSONObject response, String searchedBarcode)
+    private static List<ProductInfo> parseStockRows(JSONObject response, String query,
+                                                      boolean barcodeOnly)
             throws IOException {
         JSONArray rows = response == null ? null : response.optJSONArray("data");
         if (rows == null) {
@@ -291,8 +306,11 @@ final class WasytBarcodeScanner {
             JSONObject product = row.optJSONObject("product");
             if (product == null || product.optBoolean("is_deleted", false)) continue;
 
-            String matchedBarcode = findMatchingBarcode(product, searchedBarcode);
-            if (matchedBarcode == null) continue;
+            String matchedBarcode = findMatchingBarcode(product, query, barcodeOnly);
+            String productNameForSearch = product.optString("name", "").trim();
+            boolean nameMatches = !barcodeOnly && productNameForSearch
+                    .toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT));
+            if (matchedBarcode == null && !nameMatches) continue;
 
             long productId = product.optLong("id", row.optLong("product_id", -1L));
             if (productId <= 0) continue;
@@ -302,7 +320,9 @@ final class WasytBarcodeScanner {
             if (name.isEmpty()) name = "Nomsiz mahsulot";
 
             String resultBarcode = product.optString("barcode", "").trim();
-            if (resultBarcode.isEmpty()) resultBarcode = matchedBarcode;
+            if (resultBarcode.isEmpty()) {
+                resultBarcode = matchedBarcode == null ? "" : matchedBarcode;
+            }
 
             PriceValue price = extractSalePrice(row, product);
             ProductAccumulator item = grouped.get(productId);
@@ -333,17 +353,21 @@ final class WasytBarcodeScanner {
         return results;
     }
 
-    private static String findMatchingBarcode(JSONObject product, String barcode) {
+    private static String findMatchingBarcode(JSONObject product, String query,
+                                               boolean exactOnly) {
         String main = product.optString("barcode", "").trim();
-        if (barcode.equals(main)) return main;
+        if (query.equals(main) || (!exactOnly && main.contains(query))) return main;
 
         String industrial = product.optString("industrial_barcode", "").trim();
-        if (barcode.equals(industrial)) return industrial;
+        if (query.equals(industrial) || (!exactOnly && industrial.contains(query))) return industrial;
 
         JSONArray additional = product.optJSONArray("additional_barcodes");
         if (additional != null) {
             for (int i = 0; i < additional.length(); i++) {
-                if (barcode.equals(additional.optString(i, "").trim())) return barcode;
+                String additionalCode = additional.optString(i, "").trim();
+                if (query.equals(additionalCode) || (!exactOnly && additionalCode.contains(query))) {
+                    return additionalCode;
+                }
             }
         }
         return null;
