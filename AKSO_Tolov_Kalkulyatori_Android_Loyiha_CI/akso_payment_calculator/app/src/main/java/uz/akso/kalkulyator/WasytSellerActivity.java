@@ -319,7 +319,7 @@ public class WasytSellerActivity extends Activity {
             row.addView(add, new LinearLayout.LayoutParams(dp(42), dp(42)));
             add.setOnClickListener(v -> addToCart(product));
             View divider = new View(this);
-            divider.setBackgroundColor(0x338FFFFFF);
+            divider.setBackgroundColor(0x33FFFFFF);
             panel.addView(divider, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
         }
@@ -530,6 +530,7 @@ public class WasytSellerActivity extends Activity {
         final long stockId = WasytSellerApi.DEFAULT_STOCK_ID;
         final long clientId = selectedClient.id;
         final long discount;
+        final String checkoutClientName = selectedClient.fullName;
         try {
             discount = parseDiscountValue();
         } catch (Exception error) {
@@ -588,7 +589,7 @@ public class WasytSellerActivity extends Activity {
                         .setTitle("Kassaga yuborildi")
                         .setMessage("Mijozni kassaga yo'llang va navbat raqamini ayting.\n\n"
                                 + "Savat: " + (finalCode.isEmpty() ? "tayyor" : finalCode)
-                                + "\nMijoz: " + selectedClientNameSafe(clientId))
+                                + "\nMijoz: " + checkoutClientName)
                         .setPositiveButton("Yangi savat", null)
                         .show();
             });
