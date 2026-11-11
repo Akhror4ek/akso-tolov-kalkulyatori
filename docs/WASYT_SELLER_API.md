@@ -12,9 +12,31 @@ This document records the WASYT seller requests observed in the AKSO Finance int
 
 ## Observed endpoints
 
-### 1. Search products / catalogue
+### 1. Search products in the selected seller warehouse
 
-`GET /company/stock/product/catalog`
+`GET /company/stock/product`
+
+Required filters:
+- `filter[stock_id]=<selected stock id>`
+- `filter[common]=<product name, barcode or PLU>`
+- `page-size=20` (WASYT API maximum)
+- `page=1`
+
+Recommended relations:
+- `with[]=stock`
+- `with[]=product`
+- `with[]=product.unit`
+- `with[]=product.price`
+- `with[]=product.brand`
+- `with[]=product.category.ancestors`
+- `with[]=product_price`
+- `with[]=available_quantity`
+- `with[]=reserved_quantity`
+- `with[]=status`
+
+The WASYT API reference documents this endpoint as the selected warehouse-position list and says `filter[common]` searches by product name, barcode and PLU. Its `data[]` rows include `stock_id`, `product_id`, `quantity`, with the requested `product` and `product_price` relations.
+
+The catalog-wide endpoint `GET /company/stock/product/catalog` is a different route. It returned HTTP 403 for the linked AKSO seller account during Android testing, so the Android seller search must use `/company/stock/product` instead. Never work around a 403 by impersonating an administrator or using another user's token.
 
 Observed query parameters include:
 - `page-size=20`
