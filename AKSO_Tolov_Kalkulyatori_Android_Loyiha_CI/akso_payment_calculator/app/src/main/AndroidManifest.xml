@@ -36,5 +36,10 @@
             android:name=".WasytAccountActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".WasytSellerActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
     </application>
 </manifest>
