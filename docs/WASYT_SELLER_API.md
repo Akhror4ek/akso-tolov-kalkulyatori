@@ -1,6 +1,6 @@
 # WASYT seller workflow — observed API contract
 
-This document records the WASYT seller requests observed in the AKSO Finance integration investigation. It is based on successful browser requests and responses captured by the project owner on 2026-11-11. It is not an official WASYT API specification.
+This document records the WASYT seller requests observed in the AKSO Finance integration investigation. It is based on successful browser requests and responses captured by the project owner on 2026-11-11. The product endpoint details are cross-checked against the WASYT API reference at https://docs.wasyt.dev/internal/reference/company/stock/product.
 
 ## Authentication and safety
 
@@ -37,25 +37,6 @@ Recommended relations:
 The WASYT API reference documents this endpoint as the selected warehouse-position list and says `filter[common]` searches by product name, barcode and PLU. Its `data[]` rows include `stock_id`, `product_id`, `quantity`, with the requested `product` and `product_price` relations.
 
 The catalog-wide endpoint `GET /company/stock/product/catalog` is a different route. It returned HTTP 403 for the linked AKSO seller account during Android testing, so the Android seller search must use `/company/stock/product` instead. Never work around a 403 by impersonating an administrator or using another user's token.
-
-Observed query parameters include:
-- `page-size=20`
-- `page=1`
-- `with[]=product`
-- `with[]=product.category.ancestors`
-- `with[]=product.brand`
-- `with[]=product.unit`
-- `with[]=stock`
-- `with[]=company`
-- `with[]=product_price`
-- `with[]=status`
-- `with[]=reserved_quantity`
-- `with[]=last_purchase_at`
-- `with[]=last_purchase_price`
-- `with[]=variants_count`
-- `filter[has_variants]=0`
-
-Observed response: HTTP 200 with a JSON `data` array and pagination metadata in the captured catalogue response. Product-name and barcode search are available in the WASYT seller UI. The exact product object mapping must be implemented from a complete, non-truncated catalogue response before finalizing field parsing.
 
 ### 2. Search clients
 
