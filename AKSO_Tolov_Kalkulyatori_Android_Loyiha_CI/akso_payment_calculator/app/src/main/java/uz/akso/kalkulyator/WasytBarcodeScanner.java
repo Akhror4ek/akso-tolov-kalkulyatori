@@ -166,15 +166,10 @@ final class WasytBarcodeScanner {
     }
 
     /**
-     * Uses the exact seller catalogue URL observed in the WASYT web app with HTTP 200.
-     * The seller account can read the unfiltered catalogue, while the filtered stock
-     * endpoints tested in earlier builds returned HTTP 403. Therefore barcode matching
-     * is performed locally over paginated catalogue results; no privileged endpoint is used.
-     */
-    /**
-     * Searches the same seller-readable catalogue by product name or barcode.
-     * The currently verified seller catalogue response is paginated, so matching
-     * is performed locally over those pages instead of calling restricted stats routes.
+     * Searches the selected seller warehouse. The catalog-wide endpoint
+     * /company/stock/product/catalog returns HTTP 403 for this seller role.
+     * The documented seller warehouse endpoint supports filter[stock_id] and
+     * filter[common] (product name, barcode or PLU) and includes product/price relations.
      */
     static List<ProductInfo> searchByText(String token, String query) throws IOException {
         String term = query == null ? "" : query.trim();
@@ -187,45 +182,31 @@ final class WasytBarcodeScanner {
     private static List<ProductInfo> searchProducts(String token, String query,
                                                      boolean barcodeOnly)
             throws IOException {
-        int pageSize = 100;
-        JSONObject firstResponse;
-
-        // Try a larger page size to reduce requests. If the server rejects it,
-        // retry using the exact page-size=20 value verified in the WASYT browser.
-        try {
-            firstResponse = request(buildCataloguePath(pageSize, 1), token);
-        } catch (IOException largerPageError) {
-            pageSize = 20;
-            try {
-                firstResponse = request(buildCataloguePath(pageSize, 1), token);
-            } catch (IOException verifiedPageError) {
-                throw new IOException("WASYT katalogiga ulanish rad etildi. "
-                        + shortText(verifiedPageError.getMessage()), verifiedPageError);
-            }
-        }
+        final int pageSize = 20; // WASYT API documented maximum.
+        JSONObject firstResponse = request(
+                buildStockSearchPath(query, pageSize, 1), token);
 
         JSONArray firstRows = firstResponse.optJSONArray("data");
         if (firstRows == null) {
-            throw new IOException("WASYT katalog javobida 'data' ro‘yxati topilmadi.");
+            throw new IOException("WASYT ombor javobida 'data' ro'yxati topilmadi.");
         }
 
         JSONObject meta = firstResponse.optJSONObject("meta");
-        int actualPageSize = meta == null ? pageSize : meta.optInt("per_page", pageSize);
-        if (actualPageSize <= 0) actualPageSize = pageSize;
         int lastPage = meta == null ? 1 : meta.optInt("last_page", 1);
         if (lastPage < 1) lastPage = 1;
-        // Safety cap against malformed pagination metadata or runaway requests.
-        lastPage = Math.min(lastPage, 250);
+        // Search is already filtered on the server. A small cap avoids excessive
+        // requests for broad terms while still returning several pages of matches.
+        lastPage = Math.min(lastPage, 5);
 
         Map<Long, ProductAccumulator> grouped = new LinkedHashMap<>();
         mergePage(grouped, parseStockRows(firstResponse, query, barcodeOnly));
 
         for (int page = 2; page <= lastPage; page++) {
-            JSONObject response = request(buildCataloguePath(actualPageSize, page), token);
+            JSONObject response = request(buildStockSearchPath(query, pageSize, page), token);
             JSONArray rows = response.optJSONArray("data");
             if (rows == null) {
-                throw new IOException("WASYT katalogining " + page
-                        + "-sahifasida 'data' ro‘yxati topilmadi.");
+                throw new IOException("WASYT ombor qidiruvining " + page
+                        + "-sahifasida 'data' ro'yxati topilmadi.");
             }
             mergePage(grouped, parseStockRows(response, query, barcodeOnly));
             if (rows.length() == 0) break;
@@ -238,30 +219,33 @@ final class WasytBarcodeScanner {
                     item.priceAmount, item.currency, stock));
         }
         if (results.isEmpty()) {
-            throw new IOException("WASYT katalogida \"" + query
-                    + "\" bo'yicha mos faol mahsulot topilmadi.");
+            throw new IOException("WASYT omborida \\"" + query
+                    + "\\" bo'yicha mos mahsulot topilmadi.");
         }
         return results;
     }
 
-    private static String buildCataloguePath(int pageSize, int page) throws IOException {
-        StringBuilder query = new StringBuilder("page-size=")
-                .append(pageSize).append("&page=").append(page);
-        // These fields mirror the successful request captured from app.wasyt.uz.
-        addParam(query, "with[]", "product");
-        addParam(query, "with[]", "product.category.ancestors");
-        addParam(query, "with[]", "product.brand");
-        addParam(query, "with[]", "product.unit");
+    private static String buildStockSearchPath(String searchTerm, int pageSize, int page)
+            throws IOException {
+        StringBuilder query = new StringBuilder();
+        addParam(query, "filter[stock_id]",
+                String.valueOf(WasytSellerApi.DEFAULT_STOCK_ID));
+        addParam(query, "filter[common]", searchTerm);
+        addParam(query, "page-size", String.valueOf(pageSize));
+        addParam(query, "page", String.valueOf(page));
+
+        // All relations below are documented for GET /company/stock/product.
         addParam(query, "with[]", "stock");
-        addParam(query, "with[]", "company");
+        addParam(query, "with[]", "product");
+        addParam(query, "with[]", "product.unit");
+        addParam(query, "with[]", "product.price");
+        addParam(query, "with[]", "product.brand");
+        addParam(query, "with[]", "product.category.ancestors");
         addParam(query, "with[]", "product_price");
-        addParam(query, "with[]", "status");
+        addParam(query, "with[]", "available_quantity");
         addParam(query, "with[]", "reserved_quantity");
-        addParam(query, "with[]", "last_purchase_at");
-        addParam(query, "with[]", "last_purchase_price");
-        addParam(query, "with[]", "variants_count");
-        addParam(query, "filter[has_variants]", "0");
-        return "/company/stock/product/catalog?" + query;
+        addParam(query, "with[]", "status");
+        return "/company/stock/product?" + query;
     }
 
     private static void mergePage(Map<Long, ProductAccumulator> grouped,
