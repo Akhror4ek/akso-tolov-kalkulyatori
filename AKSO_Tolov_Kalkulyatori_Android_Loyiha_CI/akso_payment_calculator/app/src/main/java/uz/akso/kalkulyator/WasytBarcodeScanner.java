@@ -219,8 +219,8 @@ final class WasytBarcodeScanner {
                     item.priceAmount, item.currency, stock));
         }
         if (results.isEmpty()) {
-            throw new IOException("WASYT omborida \\"" + query
-                    + "\\" bo'yicha mos mahsulot topilmadi.");
+            throw new IOException("WASYT omborida " + query
+                    + " bo'yicha mos mahsulot topilmadi.");
         }
         return results;
     }
