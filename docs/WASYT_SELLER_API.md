@@ -66,9 +66,9 @@ Observed as `multipart/form-data`. Captured fields:
 - `socials[facebook]`
 - `socials[other]`
 - `image`
-- `image_old_keys[]`
+- `image_old_keys[]` (send as an empty field value when no previous image keys exist; omit `image` entirely when no image file is selected)
 
-Observed response: HTTP 200 and a created client object containing a new `id`, `company_id`, `creator_id`, `full_name`, and other client fields. Optional-field behavior should be preserved as observed; do not invent required fields.
+Observed response: HTTP 200 and a created client object containing a new `id`, `company_id`, `creator_id`, `full_name`, and other client fields. The seller form requires `image_old_keys[]` even when its value is empty. If no photo is selected, omit the `image` part entirely; sending `image` as an empty string causes the validation error `image: Rasm fayl bo‘lishi kerak.` Omitting `image_old_keys[]` causes `image_old_keys: Rasm maydoni to‘ldirilishi shart.`
 
 ### 4. Create seller cart
 
