@@ -11,14 +11,17 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.view.Window;
 import android.view.WindowManager;
+import android.view.WindowInsets;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.HorizontalScrollView;
@@ -58,6 +61,9 @@ public class WasytSellerActivity extends Activity {
 
     private LinearLayout page;
     private ScrollView sellerScroll;
+    private ViewTreeObserver.OnGlobalLayoutListener sellerKeyboardLayoutListener;
+    private boolean sellerImeVisible = false;
+    private int sellerImeBottomInset = 0;
     private LinearLayout resultsPanel;
     private LinearLayout cartPanel;
     private EditText productQuery;
@@ -273,19 +279,101 @@ public class WasytSellerActivity extends Activity {
         checkout.setOnClickListener(v -> confirmCheckout());
 
         setContentView(sellerScroll);
+        installSellerKeyboardHandling();
         updateReserveLabel();
         updateTotal();
     }
 
+    /**
+     * Android 15 (targetSdk 35) keeps edge-to-edge content behind the IME.
+     * adjustResize alone is not reliable there, so calculate the actually
+     * visible window bottom and keep the focused discount editor above it.
+     */
+    private void installSellerKeyboardHandling() {
+        if (sellerScroll == null) return;
+
+        sellerScroll.setOnApplyWindowInsetsListener((view, insets) -> {
+            sellerImeVisible = false;
+            sellerImeBottomInset = 0;
+            if (Build.VERSION.SDK_INT >= 30) {
+                sellerImeVisible = insets.isVisible(WindowInsets.Type.ime());
+                if (sellerImeVisible) {
+                    sellerImeBottomInset = insets.getInsets(WindowInsets.Type.ime()).bottom;
+                }
+            }
+            updateSellerKeyboardPadding();
+            if (sellerImeVisible) ensureDiscountFieldVisible();
+            return insets;
+        });
+
+        sellerKeyboardLayoutListener = () -> {
+            if (discountInput != null && discountInput.hasFocus()) {
+                updateSellerKeyboardPadding();
+                scrollDiscountEditorAboveKeyboard();
+            }
+        };
+        sellerScroll.getViewTreeObserver()
+                .addOnGlobalLayoutListener(sellerKeyboardLayoutListener);
+        sellerScroll.requestApplyInsets();
+    }
+
+    private void updateSellerKeyboardPadding() {
+        if (sellerScroll == null) return;
+        Rect visible = new Rect();
+        sellerScroll.getWindowVisibleDisplayFrame(visible);
+        int[] location = new int[2];
+        sellerScroll.getLocationOnScreen(location);
+        int scrollBottom = location[1] + sellerScroll.getHeight();
+        // If the decor view is edge-to-edge, this is the part covered by IME.
+        // When Android already resized the window this value is zero.
+        int covered = Math.max(0, scrollBottom - visible.bottom);
+        if (Build.VERSION.SDK_INT >= 30 && sellerImeVisible
+                && covered == 0 && sellerImeBottomInset > dp(80)) {
+            // Fallback for devices where the visible display frame is not updated.
+            covered = Math.max(0, sellerImeBottomInset - dp(24));
+        }
+        int wanted = sellerImeVisible ? covered : 0;
+        if (sellerScroll.getPaddingBottom() != wanted) {
+            sellerScroll.setPadding(sellerScroll.getPaddingLeft(),
+                    sellerScroll.getPaddingTop(), sellerScroll.getPaddingRight(), wanted);
+        }
+    }
+
+    private void scrollDiscountEditorAboveKeyboard() {
+        if (sellerScroll == null || discountInput == null
+                || !discountInput.hasFocus()) return;
+        Rect visible = new Rect();
+        sellerScroll.getWindowVisibleDisplayFrame(visible);
+
+        int[] fieldLocation = new int[2];
+        discountInput.getLocationOnScreen(fieldLocation);
+        int fieldTop = fieldLocation[1];
+        int fieldBottom = fieldTop + discountInput.getHeight();
+        int safeTop = visible.top + dp(12);
+        int safeBottom = visible.bottom - dp(28);
+
+        if (fieldBottom > safeBottom) {
+            sellerScroll.scrollBy(0, fieldBottom - safeBottom);
+        } else if (fieldTop < safeTop) {
+            sellerScroll.scrollBy(0, fieldTop - safeTop);
+        }
+    }
+
     private void ensureDiscountFieldVisible() {
         if (sellerScroll == null || discountInput == null) return;
-        discountInput.postDelayed(() -> {
-            if (sellerScroll == null || discountInput == null
-                    || !discountInput.hasFocus()) return;
-            Rect rect = new Rect(0, 0,
-                    discountInput.getWidth(), discountInput.getHeight());
-            discountInput.requestRectangleOnScreen(rect, true);
-        }, 220);
+        // IME animation can take several frames; re-check after it settles.
+        int[] delays = {80, 180, 320, 520};
+        for (int delay : delays) {
+            discountInput.postDelayed(() -> {
+                if (sellerScroll == null || discountInput == null
+                        || !discountInput.hasFocus()) return;
+                updateSellerKeyboardPadding();
+                scrollDiscountEditorAboveKeyboard();
+                Rect rect = new Rect(0, 0,
+                        discountInput.getWidth(), discountInput.getHeight());
+                discountInput.requestRectangleOnScreen(rect, true);
+            }, delay);
+        }
     }
 
     private void addSectionTitle(String value) {
@@ -1577,6 +1665,12 @@ public class WasytSellerActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (sellerScroll != null && sellerKeyboardLayoutListener != null) {
+            try {
+                sellerScroll.getViewTreeObserver()
+                        .removeOnGlobalLayoutListener(sellerKeyboardLayoutListener);
+            } catch (RuntimeException ignored) { }
+        }
         main.removeCallbacksAndMessages(null);
         network.shutdownNow();
         if (historyDialog != null && historyDialog.isShowing()) {
