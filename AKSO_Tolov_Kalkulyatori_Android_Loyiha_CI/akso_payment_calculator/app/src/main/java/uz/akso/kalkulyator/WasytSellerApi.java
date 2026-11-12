@@ -74,6 +74,8 @@ final class WasytSellerApi {
 
     static final class Cart {
         final long id;
+        final long saleId;
+        final int productsCount;
         final String code;
         final String status;
         final String saleStatus;
@@ -81,16 +83,21 @@ final class WasytSellerApi {
         final long discountAmount;
         final long totalAmount;
         final String clientName;
+        final String clientPhone;
+        final String sellerName;
         final String createdAt;
         final String sentAt;
         final String cancelReason;
         final String cancelComment;
 
-        Cart(long id, String code, String status, String saleStatus,
-             long amount, long discountAmount, long totalAmount,
-             String clientName, String createdAt, String sentAt,
+        Cart(long id, long saleId, int productsCount, String code,
+             String status, String saleStatus, long amount, long discountAmount,
+             long totalAmount, String clientName, String clientPhone,
+             String sellerName, String createdAt, String sentAt,
              String cancelReason, String cancelComment) {
             this.id = id;
+            this.saleId = saleId;
+            this.productsCount = productsCount;
             this.code = safe(code);
             this.status = safe(status);
             this.saleStatus = safe(saleStatus);
@@ -98,6 +105,8 @@ final class WasytSellerApi {
             this.discountAmount = discountAmount;
             this.totalAmount = totalAmount;
             this.clientName = safe(clientName);
+            this.clientPhone = safe(clientPhone);
+            this.sellerName = safe(sellerName);
             this.createdAt = safe(createdAt);
             this.sentAt = safe(sentAt);
             this.cancelReason = safe(cancelReason);
@@ -322,8 +331,12 @@ final class WasytSellerApi {
     }
 
     private static Cart parseCart(JSONObject row, JSONObject client) {
+        JSONObject creator = row.optJSONObject("creator");
+        JSONObject profile = creator == null ? null : creator.optJSONObject("profile");
         return new Cart(
                 row.optLong("id", -1L),
+                row.optLong("sale_id", -1L),
+                row.optInt("products_count", 0),
                 row.optString("code", ""),
                 row.optString("status", ""),
                 row.optString("sale_status", ""),
@@ -331,6 +344,8 @@ final class WasytSellerApi {
                 row.optLong("discount_amount", 0L),
                 row.optLong("total_amount", row.optLong("amount", 0L)),
                 client == null ? "" : client.optString("full_name", ""),
+                client == null ? "" : client.optString("main_phone", ""),
+                profile == null ? "" : profile.optString("full_name", ""),
                 row.optString("created_at", ""),
                 row.optString("sent_at", ""),
                 row.optString("cancel_reason", ""),
