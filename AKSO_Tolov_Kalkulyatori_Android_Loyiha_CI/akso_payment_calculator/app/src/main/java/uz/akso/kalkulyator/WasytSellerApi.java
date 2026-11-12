@@ -135,8 +135,10 @@ final class WasytSellerApi {
         fields.put("socials[facebook]", "");
         fields.put("socials[other]", "");
         fields.put("languages[]", "ru".equalsIgnoreCase(language) ? "ru" : "uz");
-        fields.put("image", "");
-        fields.put("image_old_keys[]", "");
+        // No client photo is selected in the seller quick-create form.
+        // Do not send an empty "image" part: WASYT validates any present image
+        // part as an uploaded file and rejects an empty text field with HTTP 422.
+        // image_old_keys[] is also omitted because this is a new client without prior images.
 
         JSONObject response = request("POST", "/company/client/client/", token, fields);
         JSONObject data = unwrapObject(response);
