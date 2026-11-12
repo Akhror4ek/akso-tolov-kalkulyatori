@@ -868,9 +868,21 @@ public class WasytSellerActivity extends Activity {
         if (cartId <= 0) return;
         SharedPreferences preferences = getSharedPreferences(PREF_CANCEL_REASONS, MODE_PRIVATE);
         preferences.edit()
+                .putBoolean("cancelled_" + cartId, true)
                 .putString("reason_" + cartId, reason == null ? "" : reason)
                 .putString("comment_" + cartId, comment == null ? "" : comment)
                 .apply();
+    }
+
+    private boolean isCartCancelled(WasytSellerApi.Cart cart) {
+        if (cart == null) return false;
+        String status = safeLower(cart.status);
+        String sale = safeLower(cart.saleStatus);
+        String combined = status + " " + sale;
+        if (combined.contains("cancel") || combined.contains("reject")) return true;
+        if (cart.id <= 0) return false;
+        return getSharedPreferences(PREF_CANCEL_REASONS, MODE_PRIVATE)
+                .getBoolean("cancelled_" + cart.id, false);
     }
 
     private String getDisplayedCancelReason(WasytSellerApi.Cart cart) {
@@ -966,21 +978,21 @@ public class WasytSellerActivity extends Activity {
         String status = safeLower(cart.status);
         String sale = safeLower(cart.saleStatus);
         String combined = status + " " + sale;
-        if ("picking".equals(historyFilter)) {
-            return status.equals("picking") || status.equals("reserved");
-        }
-        if ("sent".equals(historyFilter)) {
-            return status.equals("sent") || status.equals("cashier") || status.equals("cash");
-        }
+        if ("cancelled".equals(historyFilter)) return isCartCancelled(cart);
         if ("completed".equals(historyFilter)) {
             return status.equals("completed") || status.equals("done")
                     || status.equals("finished") || sale.equals("completed")
                     || sale.equals("done") || sale.equals("finished");
         }
-        if ("cancelled".equals(historyFilter)) {
-            return combined.contains("cancel") || combined.contains("canceled")
-                    || combined.contains("cancelled") || combined.contains("reject")
-                    || !getDisplayedCancelReason(cart).isEmpty();
+        if ("sent".equals(historyFilter)) {
+            return (status.equals("sent") || status.equals("cashier") || status.equals("cash"))
+                    && !isCartCancelled(cart)
+                    && !sale.equals("completed") && !sale.equals("done")
+                    && !sale.equals("finished");
+        }
+        if ("picking".equals(historyFilter)) {
+            return (status.equals("picking") || status.equals("reserved"))
+                    && !isCartCancelled(cart);
         }
         return true;
     }
@@ -996,8 +1008,7 @@ public class WasytSellerActivity extends Activity {
         if (combined.contains("partial") && combined.contains("cancel")) return "QISMAN BEKOR";
         if (combined.contains("partial") && combined.contains("return")) return "QISMAN QAYTARILGAN";
         if (combined.contains("return")) return "QAYTARILGAN";
-        if (combined.contains("cancel") || combined.contains("reject")
-                || !getDisplayedCancelReason(cart).isEmpty()) return "BEKOR QILINGAN";
+        if (isCartCancelled(cart)) return "BEKOR QILINGAN";
         if (status.equals("picking") || status.equals("reserved")) return "TANLOVDA";
         if (status.equals("sent") || status.equals("cashier") || status.equals("cash")) {
             if (sale.equals("completed") || sale.equals("done") || sale.equals("finished")) {
