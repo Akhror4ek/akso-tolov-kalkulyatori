@@ -6,6 +6,7 @@ import android.app.Dialog;
 import android.app.ProgressDialog;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.ColorDrawable;
@@ -56,6 +57,7 @@ public class WasytSellerActivity extends Activity {
     private final List<CartItem> cartItems = new ArrayList<>();
 
     private LinearLayout page;
+    private ScrollView sellerScroll;
     private LinearLayout resultsPanel;
     private LinearLayout cartPanel;
     private EditText productQuery;
@@ -100,6 +102,8 @@ public class WasytSellerActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        // Resize the seller form when the on-screen keyboard opens.
+        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         if (WasytSecureStore.getValidToken(this) == null
                 || WasytSecureStore.getCompanyId(this) <= 0) {
             new AlertDialog.Builder(this)
@@ -115,14 +119,15 @@ public class WasytSellerActivity extends Activity {
     }
 
     private void buildScreen() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(BG);
+        sellerScroll = new ScrollView(this);
+        sellerScroll.setFillViewport(true);
+        sellerScroll.setClipToPadding(false);
+        sellerScroll.setBackgroundColor(BG);
 
         page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
         page.setPadding(dp(15), dp(14), dp(15), dp(24));
-        scroll.addView(page, new ScrollView.LayoutParams(
+        sellerScroll.addView(page, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         LinearLayout header = new LinearLayout(this);
@@ -229,6 +234,11 @@ public class WasytSellerActivity extends Activity {
         LinearLayout.LayoutParams discountParams = matchWidth(dp(46));
         discountParams.topMargin = dp(8);
         options.addView(discountInput, discountParams);
+        // Explicitly bring the discount field above the keyboard on small screens.
+        discountInput.setOnFocusChangeListener((view, hasFocus) -> {
+            if (hasFocus) ensureDiscountFieldVisible();
+        });
+        discountInput.setOnClickListener(view -> ensureDiscountFieldVisible());
         discountInput.addTextChangedListener(new android.text.TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) { updateTotal(); }
@@ -262,9 +272,20 @@ public class WasytSellerActivity extends Activity {
         page.addView(checkout, checkoutParams);
         checkout.setOnClickListener(v -> confirmCheckout());
 
-        setContentView(scroll);
+        setContentView(sellerScroll);
         updateReserveLabel();
         updateTotal();
+    }
+
+    private void ensureDiscountFieldVisible() {
+        if (sellerScroll == null || discountInput == null) return;
+        discountInput.postDelayed(() -> {
+            if (sellerScroll == null || discountInput == null
+                    || !discountInput.hasFocus()) return;
+            Rect rect = new Rect(0, 0,
+                    discountInput.getWidth(), discountInput.getHeight());
+            discountInput.requestRectangleOnScreen(rect, true);
+        }, 220);
     }
 
     private void addSectionTitle(String value) {
