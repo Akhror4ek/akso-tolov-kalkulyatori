@@ -213,7 +213,7 @@ public class WasytSellerActivity extends Activity {
         discountModeButton.setOnClickListener(v -> {
             fixedDiscount = !fixedDiscount;
             discountModeButton.setText(fixedDiscount ? "ANIQ SUMMA" : "FOIZ %");
-            discountInput.setHint(fixedDiscount ? "Chegirma summasi (so'm)" : "Chegirma foizi");
+            discountInput.setHint(fixedDiscount ? "Yakuniy summa (so'm)" : "Chegirma foizi");
             updateTotal();
         });
         discountInput = input("Chegirma foizi", InputType.TYPE_CLASS_NUMBER
@@ -572,20 +572,10 @@ public class WasytSellerActivity extends Activity {
             showStatus("Kassaga yuborishdan oldin mijozni tanlang.", RED);
             return;
         }
-        long value;
         try {
-            value = parseDiscountValue();
+            calculateDiscountAmount(); // validates the entered value in the selected mode
         } catch (Exception error) {
             showStatus(error.getMessage(), RED);
-            return;
-        }
-        long subtotal = calculateSubtotal();
-        if (fixedDiscount && value > subtotal) {
-            showStatus("Chegirma savat summasidan katta bo'lmasligi kerak.", RED);
-            return;
-        }
-        if (!fixedDiscount && value > 100) {
-            showStatus("Foizli chegirma 100% dan oshmasligi kerak.", RED);
             return;
         }
         new AlertDialog.Builder(this)
@@ -607,7 +597,9 @@ public class WasytSellerActivity extends Activity {
         final long discount;
         final String checkoutClientName = selectedClient.fullName;
         try {
-            discount = parseDiscountValue();
+            // WASYT expects the discount amount. In fixed mode the seller enters
+            // the final payable total, so convert it to subtotal - final total.
+            discount = calculateDiscountAmount();
         } catch (Exception error) {
             showStatus(error.getMessage(), RED);
             return;
@@ -1167,11 +1159,12 @@ public class WasytSellerActivity extends Activity {
 
     private interface NetworkTask { void run() throws Exception; }
 
-    private long parseDiscountValue() throws Exception {
+    /** Value typed by the seller: final payable total in fixed mode, percent otherwise. */
+    private long parseDiscountInput() throws Exception {
         String raw = discountInput == null ? "" : discountInput.getText().toString().trim();
         if (raw.isEmpty()) return 0L;
         BigDecimal value = new BigDecimal(raw.replace(" ", "").replace(",", "."));
-        if (value.signum() < 0) throw new Exception("Chegirma manfiy bo'lmasligi kerak.");
+        if (value.signum() < 0) throw new Exception("Qiymat manfiy bo'lmasligi kerak.");
         return value.setScale(0, RoundingMode.HALF_UP).longValueExact();
     }
 
@@ -1183,17 +1176,41 @@ public class WasytSellerActivity extends Activity {
         return sum;
     }
 
+    /**
+     * WASYT API field discount_value is the actual discount amount even when
+     * discount_mode=integer. The UI's fixed-sum mode is intentionally different:
+     * the seller enters the final amount the customer will pay.
+     */
+    private long calculateDiscountAmount() throws Exception {
+        long subtotal = calculateSubtotal();
+        long entered = parseDiscountInput();
+        if (fixedDiscount) {
+            if (entered > subtotal) {
+                throw new Exception("Yakuniy summa mahsulotlar summasidan katta bo'lmasligi kerak.");
+            }
+            return Math.max(0L, subtotal - entered);
+        }
+        if (entered > 100L) {
+            throw new Exception("Foizli chegirma 100% dan oshmasligi kerak.");
+        }
+        return BigDecimal.valueOf(subtotal)
+                .multiply(BigDecimal.valueOf(entered))
+                .divide(BigDecimal.valueOf(100), 0, RoundingMode.HALF_UP).longValue();
+    }
+
     private long calculateTotalAfterDiscount() {
         long subtotal = calculateSubtotal();
-        long discount = 0L;
         try {
-            long value = parseDiscountValue();
-            if (fixedDiscount) discount = Math.min(value, subtotal);
-            else discount = BigDecimal.valueOf(subtotal)
-                    .multiply(BigDecimal.valueOf(Math.min(100L, value)))
-                    .divide(BigDecimal.valueOf(100), 0, RoundingMode.HALF_UP).longValue();
-        } catch (Exception ignored) { }
-        return Math.max(0L, subtotal - discount);
+            if (fixedDiscount) {
+                long enteredFinalTotal = parseDiscountInput();
+                // Keep the preview within the available subtotal while typing;
+                // checkout validates and rejects values greater than subtotal.
+                return Math.max(0L, Math.min(enteredFinalTotal, subtotal));
+            }
+            return Math.max(0L, subtotal - calculateDiscountAmount());
+        } catch (Exception ignored) {
+            return subtotal;
+        }
     }
 
     private void updateTotal() {
