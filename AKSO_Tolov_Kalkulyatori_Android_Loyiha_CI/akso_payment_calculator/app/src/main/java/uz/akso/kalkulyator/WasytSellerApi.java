@@ -305,7 +305,7 @@ final class WasytSellerApi {
     static CartDetails getCartDetails(String token, long cartId) throws IOException {
         if (cartId <= 0) throw new IOException("Savat ID noto'g'ri.");
         JSONObject response = request("GET", "/company/trade/seller-cart/" + cartId
-                + "?with%5B%5D=client&with%5B%5D=products", token, null);
+                + "?with%5B%5D=client&with%5B%5D=products&with%5B%5D=creator.profile", token, null);
         JSONObject row = unwrapObject(response);
         JSONObject client = row.optJSONObject("client");
         JSONArray rows = row.optJSONArray("products");
@@ -338,7 +338,7 @@ final class WasytSellerApi {
                 row.optInt("products_count", 0),
                 row.optString("code", ""),
                 row.optString("status", ""),
-                row.optString("sale_status", ""),
+                nullableText(row, "sale_status"),
                 row.optLong("amount", 0L),
                 row.optLong("discount_amount", 0L),
                 row.optLong("total_amount", row.optLong("amount", 0L)),
