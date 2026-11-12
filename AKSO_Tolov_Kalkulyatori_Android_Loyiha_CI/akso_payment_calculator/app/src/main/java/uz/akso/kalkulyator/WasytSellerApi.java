@@ -267,10 +267,9 @@ final class WasytSellerApi {
         if (safeReason.isEmpty()) throw new IOException("Savatni bekor qilish sababini tanlang.");
         LinkedHashMap<String, String> fields = new LinkedHashMap<>();
         fields.put("_method", "PATCH");
-        fields.put("cancel_reason", safeReason);
-        if (!safe(comment).trim().isEmpty()) {
-            fields.put("cancel_comment", safe(comment).trim());
-        }
+        // The successful WASYT browser request captured for this endpoint
+        // contains only the method override. Keep the reason in the app's
+        // local history until WASYT exposes a verified server field for it.
         return request("POST", "/company/trade/seller-cart/" + cartId
                 + "/cancel?_method=PATCH", token, fields);
     }
