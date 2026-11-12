@@ -260,7 +260,7 @@ public class WasytSellerActivity extends Activity {
         showStatus("WASYT katalogi qidirilmoqda…", MUTED);
         runNetwork("Mahsulot qidirilmoqda…", () -> {
             List<WasytBarcodeScanner.ProductInfo> found =
-                    WasytBarcodeScanner.searchByText(token, query);
+                    WasytBarcodeScanner.searchByText(token, query, WasytSecureStore.getCompanyId(this));
             main.post(() -> {
                 if (isFinishing() || isDestroyed()) return;
                 searchResults.clear();
