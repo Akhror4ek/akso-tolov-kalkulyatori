@@ -2,10 +2,12 @@ package uz.akso.kalkulyator;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.app.ProgressDialog;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -13,8 +15,11 @@ import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.ScrollView;
@@ -65,6 +70,17 @@ public class WasytSellerActivity extends Activity {
     private boolean reserveStock = true;
     private long pendingCartId = -1L;
     private String pendingCartCode = "";
+
+    private Dialog historyDialog;
+    private LinearLayout historyFiltersPanel;
+    private LinearLayout historyListPanel;
+    private TextView historyPageLabel;
+    private int historyPage = 1;
+    private int historyLastPage = 1;
+    private int historyTotal = 0;
+    private String historyFilter = "all";
+    private String historyToken = "";
+    private List<WasytSellerApi.Cart> historyPageCarts = new ArrayList<>();
 
     private static final class CartItem {
         final WasytBarcodeScanner.ProductInfo product;
@@ -442,50 +458,109 @@ public class WasytSellerActivity extends Activity {
     }
 
     private void showNewClientDialog() {
-        LinearLayout form = new LinearLayout(this);
-        form.setOrientation(LinearLayout.VERTICAL);
-        form.setPadding(dp(8), dp(4), dp(8), dp(4));
+        Dialog dialog = new Dialog(this);
+        LinearLayout sheet = card();
+        sheet.setPadding(dp(17), dp(16), dp(17), dp(15));
+        sheet.setBackground(rounded(0xFF214A36, 0xFF10291E, 22, 0xBFFFFFFF));
+
+        TextView title = label("YANGI MIJOZ", 17, WHITE, true);
+        title.setLetterSpacing(0.04f);
+        sheet.addView(title, matchWrap());
+        TextView subtitle = label("Mijoz ma'lumotlarini kiriting", 10, MUTED, false);
+        LinearLayout.LayoutParams subtitleParams = matchWidth(dp(26));
+        subtitleParams.topMargin = dp(3);
+        sheet.addView(subtitle, subtitleParams);
+
         EditText name = input("Mijoz F.I.Sh.", InputType.TYPE_CLASS_TEXT
                 | InputType.TYPE_TEXT_FLAG_CAP_WORDS);
-        EditText phone = input("Telefon raqami: 998...", InputType.TYPE_CLASS_PHONE);
-        form.addView(name, matchWidth(dp(48)));
-        addSpace(form, 8);
-        form.addView(phone, matchWidth(dp(48)));
-        addSpace(form, 8);
-        RadioGroup genderGroup = new RadioGroup(this);
-        genderGroup.setOrientation(RadioGroup.HORIZONTAL);
-        RadioButton male = new RadioButton(this);
-        male.setText("Erkak");
-        male.setTextColor(WHITE);
-        male.setChecked(true);
-        RadioButton female = new RadioButton(this);
-        female.setText("Ayol");
-        female.setTextColor(WHITE);
-        genderGroup.addView(male);
-        genderGroup.addView(female);
-        form.addView(genderGroup, matchWrap());
+        LinearLayout.LayoutParams nameParams = matchWidth(dp(50));
+        nameParams.topMargin = dp(12);
+        sheet.addView(name, nameParams);
 
-        new AlertDialog.Builder(this)
-                .setTitle("Yangi mijoz")
-                .setView(form)
-                .setNegativeButton("Bekor qilish", null)
-                .setPositiveButton("Saqlash", (dialog, which) -> {
-                    String fullName = name.getText().toString().trim();
-                    String mobile = phone.getText().toString().trim();
-                    String gender = female.isChecked() ? "female" : "male";
-                    String token = WasytSecureStore.getValidToken(this);
-                    runNetwork("Mijoz yaratilmoqda…", () -> {
-                        WasytSellerApi.Client client = WasytSellerApi.createClient(
-                                token, fullName, mobile, gender, "uz");
-                        main.post(() -> {
-                            if (isFinishing() || isDestroyed()) return;
-                            selectClient(client);
-                            clientQuery.setText(client.fullName);
-                            Toast.makeText(this, "Mijoz WASYT bazasiga qo'shildi.",
-                                    Toast.LENGTH_SHORT).show();
-                        });
-                    });
-                }).show();
+        EditText phone = input("Telefon raqami: 998...", InputType.TYPE_CLASS_PHONE);
+        LinearLayout.LayoutParams phoneParams = matchWidth(dp(50));
+        phoneParams.topMargin = dp(9);
+        sheet.addView(phone, phoneParams);
+
+        TextView genderTitle = label("JINSI", 9, MUTED, true);
+        LinearLayout.LayoutParams genderTitleParams = matchWidth(dp(25));
+        genderTitleParams.topMargin = dp(8);
+        sheet.addView(genderTitle, genderTitleParams);
+
+        LinearLayout genderRow = new LinearLayout(this);
+        genderRow.setOrientation(LinearLayout.HORIZONTAL);
+        sheet.addView(genderRow, matchWidth(dp(42)));
+        TextView male = button("ERKAK", true);
+        TextView female = button("AYOL", false);
+        genderRow.addView(male, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        LinearLayout.LayoutParams femaleParams = new LinearLayout.LayoutParams(0, dp(42), 1f);
+        femaleParams.leftMargin = dp(8);
+        genderRow.addView(female, femaleParams);
+        final boolean[] femaleSelected = {false};
+        Runnable refreshGender = () -> {
+            male.setBackground(femaleSelected[0]
+                    ? rounded(0xB83A5C48, 0xA91C3328, 14, 0x88FFFFFF)
+                    : rounded(0xFF1CCB7A, 0xFF078747, 14, 0xAAE8FFF1));
+            female.setBackground(femaleSelected[0]
+                    ? rounded(0xFF1CCB7A, 0xFF078747, 14, 0xAAE8FFF1)
+                    : rounded(0xB83A5C48, 0xA91C3328, 14, 0x88FFFFFF));
+        };
+        male.setOnClickListener(v -> { femaleSelected[0] = false; refreshGender.run(); });
+        female.setOnClickListener(v -> { femaleSelected[0] = true; refreshGender.run(); });
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams actionsParams = matchWidth(dp(46));
+        actionsParams.topMargin = dp(14);
+        sheet.addView(actions, actionsParams);
+        TextView cancel = button("BEKOR QILISH", false);
+        TextView save = button("SAQLASH", true);
+        actions.addView(cancel, new LinearLayout.LayoutParams(0, dp(46), 1f));
+        LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(0, dp(46), 1f);
+        saveParams.leftMargin = dp(8);
+        actions.addView(save, saveParams);
+
+        cancel.setOnClickListener(v -> dialog.dismiss());
+        save.setOnClickListener(v -> {
+            String fullName = name.getText().toString().trim();
+            String mobile = phone.getText().toString().trim();
+            if (fullName.length() < 2) {
+                name.setError("Mijoz F.I.Sh. kiriting.");
+                name.requestFocus();
+                return;
+            }
+            if (mobile.replaceAll("[^0-9]", "").length() < 9) {
+                phone.setError("Telefon raqamini to'liq kiriting.");
+                phone.requestFocus();
+                return;
+            }
+            String gender = femaleSelected[0] ? "female" : "male";
+            String token = WasytSecureStore.getValidToken(this);
+            dialog.dismiss();
+            runNetwork("Mijoz yaratilmoqda…", () -> {
+                WasytSellerApi.Client client = WasytSellerApi.createClient(
+                        token, fullName, mobile, gender, "uz");
+                main.post(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    selectClient(client);
+                    clientQuery.setText(client.fullName);
+                    Toast.makeText(this, "Mijoz WASYT bazasiga qo'shildi.",
+                            Toast.LENGTH_SHORT).show();
+                });
+            });
+        });
+
+        dialog.setContentView(sheet);
+        dialog.setCancelable(true);
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            int width = getResources().getDisplayMetrics().widthPixels - dp(42);
+            window.setLayout(width, WindowManager.LayoutParams.WRAP_CONTENT);
+            window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                    | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
+        }
     }
 
     private void confirmCheckout() {
@@ -601,58 +676,465 @@ public class WasytSellerActivity extends Activity {
     }
 
     private void showCartHistory() {
-        String token = WasytSecureStore.getValidToken(this);
-        runNetwork("Savatlar yuklanmoqda…", () -> {
-            List<WasytSellerApi.Cart> carts = WasytSellerApi.listCarts(token, 1);
+        historyPage = 1;
+        historyFilter = "all";
+        historyToken = WasytSecureStore.getValidToken(this);
+
+        historyDialog = new Dialog(this);
+        LinearLayout shell = card();
+        shell.setPadding(dp(14), dp(13), dp(14), dp(12));
+        shell.setBackground(rounded(0xFF214A36, 0xFF0C2118, 22, 0xBFFFFFFF));
+
+        LinearLayout heading = new LinearLayout(this);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        shell.addView(heading, matchWidth(dp(42)));
+        LinearLayout headingText = new LinearLayout(this);
+        headingText.setOrientation(LinearLayout.VERTICAL);
+        heading.addView(headingText, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        headingText.addView(label("AKSO  /  WASYT", 8, MUTED, true), matchWrap());
+        headingText.addView(label("MENING SAVATLARIM", 14, WHITE, true), matchWrap());
+        TextView close = button("YOPISH", false);
+        heading.addView(close, new LinearLayout.LayoutParams(dp(72), dp(36)));
+        close.setOnClickListener(v -> historyDialog.dismiss());
+
+        TextView summary = label("Savatlar tarixi yuklanmoqda…", 10, LIGHT_GREEN, true);
+        LinearLayout.LayoutParams summaryParams = matchWidth(dp(28));
+        summaryParams.topMargin = dp(7);
+        shell.addView(summary, summaryParams);
+
+        HorizontalScrollView filterScroll = new HorizontalScrollView(this);
+        filterScroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout.LayoutParams filterScrollParams = matchWidth(dp(42));
+        filterScrollParams.topMargin = dp(4);
+        shell.addView(filterScroll, filterScrollParams);
+        historyFiltersPanel = new LinearLayout(this);
+        historyFiltersPanel.setOrientation(LinearLayout.HORIZONTAL);
+        filterScroll.addView(historyFiltersPanel, new HorizontalScrollView.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        ScrollView listScroll = new ScrollView(this);
+        listScroll.setFillViewport(false);
+        LinearLayout.LayoutParams listScrollParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        listScrollParams.topMargin = dp(8);
+        listScrollParams.bottomMargin = dp(8);
+        shell.addView(listScroll, listScrollParams);
+        historyListPanel = new LinearLayout(this);
+        historyListPanel.setOrientation(LinearLayout.VERTICAL);
+        listScroll.addView(historyListPanel, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout pager = new LinearLayout(this);
+        pager.setGravity(Gravity.CENTER_VERTICAL);
+        shell.addView(pager, matchWidth(dp(42)));
+        TextView previous = button("‹  OLDINGI", false);
+        TextView next = button("KEYINGI  ›", false);
+        pager.addView(previous, new LinearLayout.LayoutParams(0, dp(40), 1f));
+        LinearLayout.LayoutParams pageParams = new LinearLayout.LayoutParams(0, dp(40), 1f);
+        pageParams.leftMargin = dp(7);
+        pager.addView(next, pageParams);
+        previous.setOnClickListener(v -> {
+            if (historyPage > 1) { historyPage--; loadHistoryPage(); }
+        });
+        next.setOnClickListener(v -> {
+            if (historyPage < historyLastPage) { historyPage++; loadHistoryPage(); }
+        });
+
+        historyPageLabel = label("", 9, MUTED, false);
+        historyPageLabel.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams pageLabelParams = matchWidth(dp(20));
+        pageLabelParams.topMargin = dp(3);
+        shell.addView(historyPageLabel, pageLabelParams);
+
+        historyDialog.setContentView(shell);
+        historyDialog.setCancelable(true);
+        historyDialog.show();
+        Window window = historyDialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            int width = getResources().getDisplayMetrics().widthPixels - dp(30);
+            int height = Math.min(getResources().getDisplayMetrics().heightPixels - dp(110), dp(720));
+            window.setLayout(width, height);
+        }
+        loadHistoryPage();
+    }
+
+    private void loadHistoryPage() {
+        if (historyDialog == null || !historyDialog.isShowing()) return;
+        historyListPanel.removeAllViews();
+        historyListPanel.addView(label("Savatlar yuklanmoqda…", 11, MUTED, false), matchWrap());
+        runNetwork("Savatlar tarixi yuklanmoqda…", () -> {
+            WasytSellerApi.CartPage result = WasytSellerApi.listCartPage(historyToken, historyPage);
             main.post(() -> {
-                if (isFinishing() || isDestroyed()) return;
-                if (carts.isEmpty()) {
-                    new AlertDialog.Builder(this).setTitle("Savatlar tarixi")
-                            .setMessage("Hozircha savatlar topilmadi.")
-                            .setPositiveButton("Yopish", null).show();
-                    return;
-                }
-                String[] labels = new String[carts.size()];
-                for (int i = 0; i < carts.size(); i++) {
-                    WasytSellerApi.Cart cart = carts.get(i);
-                    labels[i] = "#" + cart.code + "  ·  " + cart.clientName
-                            + "\n" + formatMoney(cart.totalAmount) + " so'm  ·  " + cart.status;
-                }
-                new AlertDialog.Builder(this).setTitle("Mening savatlarim")
-                        .setItems(labels, (dialog, which) -> showCartActions(carts.get(which)))
-                        .setPositiveButton("Yopish", null).show();
+                if (isFinishing() || isDestroyed() || historyDialog == null
+                        || !historyDialog.isShowing()) return;
+                historyPage = result.currentPage;
+                historyLastPage = result.lastPage;
+                historyTotal = result.total;
+                historyPageCarts = result.carts;
+                renderHistoryPage();
             });
         });
     }
 
-    private void showCartActions(WasytSellerApi.Cart cart) {
-        String status = cart.status.toLowerCase(Locale.ROOT);
-        AlertDialog.Builder builder = new AlertDialog.Builder(this)
-                .setTitle("Savat #" + cart.code)
-                .setMessage("Mijoz: " + cart.clientName
-                        + "\nHolati: " + cart.status
-                        + "\nMahsulotlar summasi: " + formatMoney(cart.amount)
-                        + "\nChegirma: " + formatMoney(cart.discountAmount)
-                        + "\nJami: " + formatMoney(cart.totalAmount) + " so'm")
-                .setPositiveButton("Yopish", null);
-        if ("picking".equals(status) || "reserved".equals(status)) {
-            builder.setNeutralButton("Savatni bekor qilish", (dialog, which) ->
-                    confirmCancelCart(cart));
+    private void renderHistoryPage() {
+        if (historyListPanel == null || historyFiltersPanel == null) return;
+        historyFiltersPanel.removeAllViews();
+        addHistoryFilter("all", "HAMMASI");
+        addHistoryFilter("picking", "TANLOVDA");
+        addHistoryFilter("sent", "KASSADA");
+        addHistoryFilter("completed", "YAKUNLANGAN");
+        addHistoryFilter("cancelled", "BEKOR QILINGAN");
+
+        historyListPanel.removeAllViews();
+        int visible = 0;
+        for (WasytSellerApi.Cart cart : historyPageCarts) {
+            if (!matchesHistoryFilter(cart)) continue;
+            visible++;
+            addHistoryCartCard(cart);
         }
-        builder.show();
+        if (visible == 0) {
+            LinearLayout empty = card();
+            empty.addView(label(historyPageCarts.isEmpty()
+                    ? "Hozircha savatlar topilmadi."
+                    : "Bu sahifada tanlangan holatdagi savatlar yo'q.", 11, MUTED, false), matchWrap());
+            historyListPanel.addView(empty, matchWrap());
+        }
+        historyPageLabel.setText("Jami " + historyTotal + " ta savat  ·  "
+                + historyPage + " / " + historyLastPage + "-sahifa  ·  "
+                + visible + " ta ko'rsatilmoqda");
+    }
+
+    private void addHistoryFilter(String key, String text) {
+        boolean selected = historyFilter.equals(key);
+        TextView chip = label(text, 9, selected ? WHITE : MUTED, true);
+        chip.setGravity(Gravity.CENTER);
+        chip.setPadding(dp(12), dp(6), dp(12), dp(6));
+        chip.setBackground(rounded(selected ? 0xFF087A43 : 0x803A5C48,
+                selected ? 0xFF0BB34B : 0x801C3328, 13,
+                selected ? 0xAAE8FFF1 : 0x6688A997));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(36));
+        params.rightMargin = dp(6);
+        historyFiltersPanel.addView(chip, params);
+        chip.setOnClickListener(v -> {
+            historyFilter = key;
+            renderHistoryPage();
+        });
+    }
+
+    private boolean matchesHistoryFilter(WasytSellerApi.Cart cart) {
+        if ("all".equals(historyFilter)) return true;
+        String status = safeLower(cart.status);
+        String sale = safeLower(cart.saleStatus);
+        if ("picking".equals(historyFilter)) {
+            return status.equals("picking") || status.equals("reserved");
+        }
+        if ("sent".equals(historyFilter)) {
+            return status.equals("sent") || status.equals("cashier") || status.equals("cash");
+        }
+        if ("completed".equals(historyFilter)) {
+            return status.equals("completed") || status.equals("done")
+                    || sale.equals("completed") || sale.equals("done") || sale.equals("finished");
+        }
+        if ("cancelled".equals(historyFilter)) {
+            return status.contains("cancel") || status.contains("reject")
+                    || sale.contains("cancel") || sale.contains("reject")
+                    || !cart.cancelReason.isEmpty();
+        }
+        return true;
+    }
+
+    private String safeLower(String value) {
+        return value == null ? "" : value.toLowerCase(Locale.ROOT).trim();
+    }
+
+    private String cartStatusLabel(WasytSellerApi.Cart cart) {
+        String status = safeLower(cart.status);
+        String sale = safeLower(cart.saleStatus);
+        if (status.equals("picking") || status.equals("reserved")) return "TANLOVDA";
+        if (status.equals("sent") || status.equals("cashier") || status.equals("cash")) {
+            if (sale.equals("completed") || sale.equals("done") || sale.equals("finished")) {
+                return "YAKUNLANGAN";
+            }
+            return "KASSADA";
+        }
+        if (status.contains("cancel") || sale.contains("cancel")
+                || !cart.cancelReason.isEmpty()) return "BEKOR QILINGAN";
+        if (status.equals("completed") || status.equals("done")) return "YAKUNLANGAN";
+        return cart.status.isEmpty() ? "HOLAT NOMA'LUM" : cart.status.toUpperCase(Locale.ROOT);
+    }
+
+    private void addHistoryCartCard(WasytSellerApi.Cart cart) {
+        LinearLayout item = card();
+        LinearLayout.LayoutParams itemParams = matchWrap();
+        itemParams.bottomMargin = dp(8);
+        historyListPanel.addView(item, itemParams);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        item.addView(top, matchWrap());
+        LinearLayout heading = new LinearLayout(this);
+        heading.setOrientation(LinearLayout.VERTICAL);
+        top.addView(heading, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        heading.addView(label("SAVAT  #" + cart.code, 11, WHITE, true), matchWrap());
+        heading.addView(label(cart.clientName.isEmpty() ? "Mijoz tanlanmagan" : cart.clientName,
+                10, MUTED, false), matchWrap());
+
+        TextView state = label(cartStatusLabel(cart), 8, LIGHT_GREEN, true);
+        state.setGravity(Gravity.CENTER);
+        state.setPadding(dp(8), dp(6), dp(8), dp(6));
+        state.setBackground(rounded(0x5537B978, 0x3320A45F, 10, 0x6678E4A8));
+        top.addView(state, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(28)));
+
+        TextView amount = label(formatMoney(cart.totalAmount) + " so'm", 15, LIGHT_GREEN, true);
+        LinearLayout.LayoutParams amountParams = matchWidth(dp(27));
+        amountParams.topMargin = dp(7);
+        item.addView(amount, amountParams);
+        String sub = cart.createdAt + (cart.sentAt.isEmpty() ? "" : "  ·  Kassaga: " + cart.sentAt);
+        item.addView(label(sub, 8, MUTED, false), matchWrap());
+        if (!cart.cancelReason.isEmpty()) {
+            TextView reason = label("Bekor qilish sababi: " + cart.cancelReason, 9, RED, true);
+            LinearLayout.LayoutParams reasonParams = matchWidth(dp(24));
+            reasonParams.topMargin = dp(4);
+            item.addView(reason, reasonParams);
+        }
+        item.setOnClickListener(v -> showCartDetails(cart));
+    }
+
+    private void showCartDetails(WasytSellerApi.Cart summary) {
+        runNetwork("Savat tafsilotlari olinmoqda…", () -> {
+            WasytSellerApi.CartDetails details = WasytSellerApi.getCartDetails(
+                    WasytSecureStore.getValidToken(this), summary.id);
+            main.post(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                renderCartDetails(details);
+            });
+        });
+    }
+
+    private void renderCartDetails(WasytSellerApi.CartDetails details) {
+        WasytSellerApi.Cart cart = details.cart;
+        Dialog dialog = new Dialog(this);
+        LinearLayout shell = card();
+        shell.setPadding(dp(15), dp(14), dp(15), dp(13));
+        shell.setBackground(rounded(0xFF214A36, 0xFF0C2118, 20, 0xBFFFFFFF));
+
+        LinearLayout heading = new LinearLayout(this);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        shell.addView(heading, matchWidth(dp(38)));
+        heading.addView(label("SAVAT  #" + cart.code, 14, WHITE, true),
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView close = button("YOPISH", false);
+        heading.addView(close, new LinearLayout.LayoutParams(dp(70), dp(34)));
+        close.setOnClickListener(v -> dialog.dismiss());
+
+        TextView state = label(cartStatusLabel(cart), 10, LIGHT_GREEN, true);
+        LinearLayout.LayoutParams stateParams = matchWidth(dp(25));
+        stateParams.topMargin = dp(3);
+        shell.addView(state, stateParams);
+        addDetailLine(shell, "Mijoz", cart.clientName);
+        if (!details.clientPhone.isEmpty()) addDetailLine(shell, "Telefon", details.clientPhone);
+        addDetailLine(shell, "Yaratilgan", cart.createdAt);
+        if (!cart.sentAt.isEmpty()) addDetailLine(shell, "Kassaga yuborilgan", cart.sentAt);
+        addDetailLine(shell, "Ombordan bron", details.reserved ? "Ha" : "Yo'q");
+
+        TextView productsTitle = label("MAHSULOTLAR  (" + details.products.size() + ")", 10, MUTED, true);
+        LinearLayout.LayoutParams productsTitleParams = matchWidth(dp(28));
+        productsTitleParams.topMargin = dp(7);
+        shell.addView(productsTitle, productsTitleParams);
+        ScrollView productsScroll = new ScrollView(this);
+        shell.addView(productsScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(170)));
+        LinearLayout products = new LinearLayout(this);
+        products.setOrientation(LinearLayout.VERTICAL);
+        productsScroll.addView(products, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        if (details.products.isEmpty()) {
+            products.addView(label("Mahsulot tafsilotlari serverdan qaytmadi.", 10, MUTED, false), matchWrap());
+        } else {
+            for (WasytSellerApi.CartProduct product : details.products) {
+                LinearLayout line = new LinearLayout(this);
+                line.setOrientation(LinearLayout.VERTICAL);
+                line.setPadding(0, dp(5), 0, dp(5));
+                products.addView(line, matchWrap());
+                line.addView(label(product.name, 10, WHITE, true), matchWrap());
+                String meta = product.quantity + " " + product.unit + " × "
+                        + formatMoney(product.price) + " so'm";
+                if (!product.barcode.isEmpty()) meta += "  ·  " + product.barcode;
+                line.addView(label(meta, 9, MUTED, false), matchWrap());
+                if (product.discount > 0) {
+                    line.addView(label("Mahsulot chegirmasi: -" + formatMoney(product.discount)
+                            + " so'm", 9, RED, false), matchWrap());
+                }
+                View divider = new View(this);
+                divider.setBackgroundColor(0x33FFFFFF);
+                products.addView(divider, new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
+            }
+        }
+
+        addDetailLine(shell, "Mahsulotlar summasi", formatMoney(cart.amount) + " so'm");
+        addDetailLine(shell, "Chegirma", "-" + formatMoney(cart.discountAmount) + " so'm");
+        TextView total = label("JAMI: " + formatMoney(cart.totalAmount) + " so'm",
+                17, LIGHT_GREEN, true);
+        total.setGravity(Gravity.END);
+        LinearLayout.LayoutParams totalParams = matchWidth(dp(35));
+        totalParams.topMargin = dp(5);
+        shell.addView(total, totalParams);
+        if (!cart.cancelReason.isEmpty()) {
+            addDetailLine(shell, "Bekor qilish sababi", cart.cancelReason);
+            if (!cart.cancelComment.isEmpty()) addDetailLine(shell, "Izoh", cart.cancelComment);
+        }
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setGravity(Gravity.END);
+        LinearLayout.LayoutParams actionsParams = matchWidth(dp(43));
+        actionsParams.topMargin = dp(8);
+        shell.addView(actions, actionsParams);
+        if (isCartCancelable(cart)) {
+            TextView cancel = button("SAVATNI BEKOR QILISH", false);
+            cancel.setTextColor(RED);
+            cancel.setBackground(rounded(0x663D211F, 0x66251515, 13, 0x99E36A65));
+            actions.addView(cancel, new LinearLayout.LayoutParams(0, dp(42), 1f));
+            cancel.setOnClickListener(v -> {
+                dialog.dismiss();
+                confirmCancelCart(cart);
+            });
+        }
+
+        dialog.setContentView(shell);
+        dialog.setCancelable(true);
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            int width = getResources().getDisplayMetrics().widthPixels - dp(34);
+            int height = Math.min(getResources().getDisplayMetrics().heightPixels - dp(110), dp(700));
+            window.setLayout(width, height);
+        }
+    }
+
+    private void addDetailLine(LinearLayout parent, String key, String value) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(3), 0, dp(3));
+        parent.addView(row, matchWrap());
+        row.addView(label(key, 9, MUTED, false),
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView valueView = label(value == null ? "" : value, 9, WHITE, true);
+        valueView.setGravity(Gravity.END);
+        row.addView(valueView, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1.15f));
+    }
+
+    private boolean isCartCancelable(WasytSellerApi.Cart cart) {
+        String status = safeLower(cart.status);
+        String sale = safeLower(cart.saleStatus);
+        return (status.equals("picking") || status.equals("reserved") || status.equals("sent"))
+                && !sale.equals("completed") && !sale.equals("done")
+                && !status.contains("cancel");
     }
 
     private void confirmCancelCart(WasytSellerApi.Cart cart) {
-        new AlertDialog.Builder(this)
-                .setTitle("Savat bekor qilinsinmi?")
-                .setMessage("#" + cart.code + " savati bekor qilinadi. Tovarlar sotuvga qaytishi mumkin.")
-                .setNegativeButton("Ortga", null)
-                .setPositiveButton("Bekor qilish", (dialog, which) -> {
-                    String token = WasytSecureStore.getValidToken(this);
-                    runNetwork("Savat bekor qilinmoqda…", () ->
-                            WasytSellerApi.cancelCart(token, cart.id));
-                    showStatus("Savatni bekor qilish so'rovi yuborildi.", MUTED);
-                }).show();
+        Dialog dialog = new Dialog(this);
+        LinearLayout shell = card();
+        shell.setPadding(dp(16), dp(15), dp(16), dp(14));
+        shell.setBackground(rounded(0xFF214A36, 0xFF0C2118, 20, 0xBFFFFFFF));
+        shell.addView(label("SAVATNI BEKOR QILISH", 14, WHITE, true), matchWrap());
+        LinearLayout.LayoutParams messageParams = matchWidth(dp(38));
+        messageParams.topMargin = dp(4);
+        shell.addView(label("#" + cart.code + " savati bekor qilinadi. Sababini tanlang.",
+                9, MUTED, false), messageParams);
+
+        String[] reasons = {
+                "Takroriy / xato yaratilgan",
+                "Mijoz voz kechdi",
+                "Eskirgan",
+                "Boshqa"
+        };
+        RadioGroup reasonGroup = new RadioGroup(this);
+        reasonGroup.setOrientation(RadioGroup.VERTICAL);
+        RadioButton[] choices = new RadioButton[reasons.length];
+        for (int i = 0; i < reasons.length; i++) {
+            RadioButton choice = new RadioButton(this);
+            choice.setId(View.generateViewId());
+            choice.setText(reasons[i]);
+            choice.setTextColor(WHITE);
+            choice.setButtonTintList(android.content.res.ColorStateList.valueOf(GREEN));
+            reasonGroup.addView(choice, matchWrap());
+            choices[i] = choice;
+        }
+        choices[1].setChecked(true);
+        reasonGroup.check(choices[1].getId());
+        shell.addView(reasonGroup, matchWrap());
+
+        EditText comment = input("Qo'shimcha izoh (ixtiyoriy)", InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        comment.setSingleLine(false);
+        comment.setGravity(Gravity.TOP | Gravity.START);
+        comment.setMinLines(2);
+        comment.setPadding(dp(11), dp(9), dp(11), dp(9));
+        LinearLayout.LayoutParams commentParams = matchWidth(dp(64));
+        commentParams.topMargin = dp(4);
+        shell.addView(comment, commentParams);
+        comment.setVisibility(View.GONE);
+        reasonGroup.setOnCheckedChangeListener((group, checkedId) -> {
+            comment.setVisibility(checkedId == choices[3].getId() ? View.VISIBLE : View.GONE);
+        });
+
+        LinearLayout actions = new LinearLayout(this);
+        LinearLayout.LayoutParams actionsParams = matchWidth(dp(44));
+        actionsParams.topMargin = dp(10);
+        shell.addView(actions, actionsParams);
+        TextView back = button("ORTGA", false);
+        TextView confirm = button("BEKOR QILISH", true);
+        confirm.setBackground(rounded(0xFFE65F5A, 0xFFC83D3D, 13, 0xAAFFD9D7));
+        actions.addView(back, new LinearLayout.LayoutParams(0, dp(44), 1f));
+        LinearLayout.LayoutParams confirmParams = new LinearLayout.LayoutParams(0, dp(44), 1f);
+        confirmParams.leftMargin = dp(8);
+        actions.addView(confirm, confirmParams);
+        back.setOnClickListener(v -> dialog.dismiss());
+        confirm.setOnClickListener(v -> {
+            int selected = reasonGroup.getCheckedRadioButtonId();
+            RadioButton checked = selected == -1 ? null : reasonGroup.findViewById(selected);
+            if (checked == null) {
+                showError("Bekor qilish sababi", "Bekor qilish sababini tanlang.");
+                return;
+            }
+            String reason = checked.getText().toString();
+            String note = comment.getText().toString().trim();
+            if ("Boshqa".equals(reason) && note.isEmpty()) {
+                comment.setError("Sababni izohlang.");
+                comment.setVisibility(View.VISIBLE);
+                comment.requestFocus();
+                return;
+            }
+            dialog.dismiss();
+            String token = WasytSecureStore.getValidToken(this);
+            runNetwork("Savat bekor qilinmoqda…", () -> {
+                WasytSellerApi.cancelCart(token, cart.id, reason, note);
+                main.post(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    showStatus("Savat #" + cart.code + " bekor qilindi.", LIGHT_GREEN);
+                    loadHistoryPage();
+                });
+            });
+        });
+
+        dialog.setContentView(shell);
+        dialog.setCancelable(true);
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            window.setLayout(getResources().getDisplayMetrics().widthPixels - dp(38),
+                    WindowManager.LayoutParams.WRAP_CONTENT);
+            window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
     }
 
     private void runNetwork(String message, NetworkTask task) {
@@ -832,6 +1314,9 @@ public class WasytSellerActivity extends Activity {
     protected void onDestroy() {
         main.removeCallbacksAndMessages(null);
         network.shutdownNow();
+        if (historyDialog != null && historyDialog.isShowing()) {
+            try { historyDialog.dismiss(); } catch (RuntimeException ignored) { }
+        }
         super.onDestroy();
     }
 }
