@@ -136,7 +136,8 @@ final class WasytBarcodeScanner {
                     ExecutorService executor = Executors.newSingleThreadExecutor();
                     executor.execute(() -> {
                         try {
-                            List<ProductInfo> products = searchProducts(token, code, true);
+                            long companyId = WasytSecureStore.getCompanyId(activity);
+                            List<ProductInfo> products = searchProducts(token, code, true, companyId);
                             MAIN.post(() -> {
                                 if (!activity.isFinishing() && !activity.isDestroyed()) {
                                     listener.onProductsFound(code, products);
@@ -171,101 +172,78 @@ final class WasytBarcodeScanner {
      * The documented seller warehouse endpoint supports filter[stock_id] and
      * filter[common] (product name, barcode or PLU) and includes product/price relations.
      */
-    static List<ProductInfo> searchByText(String token, String query) throws IOException {
+    static List<ProductInfo> searchByText(String token, String query, long companyId)
+            throws IOException {
         String term = query == null ? "" : query.trim();
         if (term.length() < 2) {
             throw new IOException("Mahsulot nomidan kamida 2 ta belgi yoki to'liq shtrix-kod kiriting.");
         }
-        return searchProducts(token, term, false);
+        return searchProducts(token, term, false, companyId);
     }
 
     private static List<ProductInfo> searchProducts(String token, String query,
-                                                     boolean barcodeOnly)
+                                                     boolean barcodeOnly, long companyId)
             throws IOException {
-        final int pageSize = 20; // WASYT API documented maximum.
+        if (companyId <= 0) {
+            throw new IOException("WASYT kompaniya ID aniqlanmadi. Akkauntni qayta ulang.");
+        }
+
+        final int pageSize = 20;
         JSONObject firstResponse = request(
-                buildStockSearchPath(query, pageSize, 1), token);
+                buildProductSearchPath(query, companyId, pageSize, 1), token);
 
         JSONArray firstRows = firstResponse.optJSONArray("data");
         if (firstRows == null) {
-            throw new IOException("WASYT ombor javobida 'data' ro'yxati topilmadi.");
+            throw new IOException("WASYT mahsulot javobida 'data' ro'yxati topilmadi.");
         }
+
+        Map<Long, ProductInfo> products = new LinkedHashMap<>();
+        addProductRows(products, firstRows, query, barcodeOnly);
 
         JSONObject meta = firstResponse.optJSONObject("meta");
         int lastPage = meta == null ? 1 : meta.optInt("last_page", 1);
         if (lastPage < 1) lastPage = 1;
-        // Search is already filtered on the server. A small cap avoids excessive
-        // requests for broad terms while still returning several pages of matches.
         lastPage = Math.min(lastPage, 5);
 
-        Map<Long, ProductAccumulator> grouped = new LinkedHashMap<>();
-        mergePage(grouped, parseStockRows(firstResponse, query, barcodeOnly));
-
         for (int page = 2; page <= lastPage; page++) {
-            JSONObject response = request(buildStockSearchPath(query, pageSize, page), token);
+            JSONObject response = request(
+                    buildProductSearchPath(query, companyId, pageSize, page), token);
             JSONArray rows = response.optJSONArray("data");
             if (rows == null) {
-                throw new IOException("WASYT ombor qidiruvining " + page
+                throw new IOException("WASYT mahsulot qidiruvining " + page
                         + "-sahifasida 'data' ro'yxati topilmadi.");
             }
-            mergePage(grouped, parseStockRows(response, query, barcodeOnly));
+            addProductRows(products, rows, query, barcodeOnly);
             if (rows.length() == 0) break;
         }
 
-        ArrayList<ProductInfo> results = new ArrayList<>();
-        for (ProductAccumulator item : grouped.values()) {
-            String stock = item.hasStock ? normalizeQuantity(item.stockTotal) : "";
-            results.add(new ProductInfo(item.id, item.name, item.barcode,
-                    item.priceAmount, item.currency, stock));
-        }
-        if (results.isEmpty()) {
+        if (products.isEmpty()) {
             throw new IOException("WASYT omborida " + query
                     + " bo'yicha mos mahsulot topilmadi.");
         }
-        return results;
+        return new ArrayList<>(products.values());
     }
 
-    private static String buildStockSearchPath(String searchTerm, int pageSize, int page)
+    /**
+     * Exact request observed in the official WASYT seller workflow:
+     * GET /common/public/records/product
+     * The previous /company/stock/product/catalog and /company/stock/product
+     * routes are not the seller UI's product-search route.
+     */
+    private static String buildProductSearchPath(String searchTerm, long companyId,
+                                                  int pageSize, int page)
             throws IOException {
         StringBuilder query = new StringBuilder();
         addParam(query, "filter[stock_id]",
                 String.valueOf(WasytSellerApi.DEFAULT_STOCK_ID));
-        addParam(query, "filter[common]", searchTerm);
-        addParam(query, "page-size", String.valueOf(pageSize));
+        addParam(query, "filter[company_id]", String.valueOf(companyId));
+        addParam(query, "filter[has_price]", "1");
+        addParam(query, "filter[with_reserved_quantity]", "1");
+        addParam(query, "filter[stock_quantity][]", "0.0001");
+        addParam(query, "filter[name_or_barcode]", searchTerm);
         addParam(query, "page", String.valueOf(page));
-
-        // All relations below are documented for GET /company/stock/product.
-        addParam(query, "with[]", "stock");
-        addParam(query, "with[]", "product");
-        addParam(query, "with[]", "product.unit");
-        addParam(query, "with[]", "product.price");
-        addParam(query, "with[]", "product.brand");
-        addParam(query, "with[]", "product.category.ancestors");
-        addParam(query, "with[]", "product_price");
-        addParam(query, "with[]", "available_quantity");
-        addParam(query, "with[]", "reserved_quantity");
-        addParam(query, "with[]", "status");
-        return "/company/stock/product?" + query;
-    }
-
-    private static void mergePage(Map<Long, ProductAccumulator> grouped,
-                                  List<ProductInfo> pageProducts) {
-        for (ProductInfo product : pageProducts) {
-            ProductAccumulator item = grouped.get(product.id);
-            if (item == null) {
-                item = new ProductAccumulator(product.id, product.name, product.barcode,
-                        product.priceAmount, product.currency);
-                grouped.put(product.id, item);
-            } else if (item.priceAmount <= 0 && product.priceAmount > 0) {
-                item.priceAmount = product.priceAmount;
-                item.currency = product.currency;
-            }
-            BigDecimal quantity = toDecimal(product.stockQuantity);
-            if (quantity != null) {
-                item.stockTotal = item.stockTotal.add(quantity);
-                item.hasStock = true;
-            }
-        }
+        addParam(query, "page-size", String.valueOf(pageSize));
+        return "/common/public/records/product?" + query;
     }
 
     private static void addParam(StringBuilder query, String key, String value)
@@ -274,67 +252,40 @@ final class WasytBarcodeScanner {
         query.append(encode(key)).append('=').append(encode(value));
     }
 
-    private static List<ProductInfo> parseStockRows(JSONObject response, String query,
-                                                      boolean barcodeOnly)
-            throws IOException {
-        JSONArray rows = response == null ? null : response.optJSONArray("data");
-        if (rows == null) {
-            throw new IOException("WASYT javobida 'data' ro‘yxati topilmadi.");
-        }
-
-        Map<Long, ProductAccumulator> grouped = new LinkedHashMap<>();
+    /**
+     * WASYT public product records are flat product objects:
+     * id, value, barcode, price{}, stock_product{}.
+     * They are NOT wrapped in a nested "product" object.
+     */
+    private static void addProductRows(Map<Long, ProductInfo> products, JSONArray rows,
+                                       String query, boolean barcodeOnly) {
         for (int i = 0; i < rows.length(); i++) {
             JSONObject row = rows.optJSONObject(i);
-            if (row == null) continue;
+            if (row == null || row.optBoolean("is_deleted", false)) continue;
 
-            JSONObject product = row.optJSONObject("product");
-            if (product == null || product.optBoolean("is_deleted", false)) continue;
+            String matchedBarcode = findMatchingBarcode(row, query, barcodeOnly);
+            if (barcodeOnly && matchedBarcode == null) continue;
 
-            String matchedBarcode = findMatchingBarcode(product, query, barcodeOnly);
-            String productNameForSearch = product.optString("name", "").trim();
-            boolean nameMatches = !barcodeOnly && productNameForSearch
-                    .toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT));
-            if (matchedBarcode == null && !nameMatches) continue;
-
-            long productId = product.optLong("id", row.optLong("product_id", -1L));
+            long productId = row.optLong("id", -1L);
             if (productId <= 0) continue;
 
-            String name = product.optString("name", "").trim();
-            if (name.isEmpty()) name = product.optString("full_text", "").trim();
+            String name = row.optString("value", "").trim();
+            if (name.isEmpty()) name = row.optString("full_text", "").trim();
             if (name.isEmpty()) name = "Nomsiz mahsulot";
 
-            String resultBarcode = product.optString("barcode", "").trim();
-            if (resultBarcode.isEmpty()) {
-                resultBarcode = matchedBarcode == null ? "" : matchedBarcode;
-            }
+            String barcode = row.optString("barcode", "").trim();
+            if (barcode.isEmpty()) barcode = matchedBarcode == null ? "" : matchedBarcode;
 
-            PriceValue price = extractSalePrice(row, product);
-            ProductAccumulator item = grouped.get(productId);
-            if (item == null) {
-                item = new ProductAccumulator(productId, name, resultBarcode,
-                        price.amount, price.currency);
-                grouped.put(productId, item);
-            } else if (item.priceAmount <= 0 && price.amount > 0) {
-                item.priceAmount = price.amount;
-                item.currency = price.currency;
-            }
+            PriceValue price = extractSalePrice(row);
+            String stockQuantity = extractAvailableQuantity(row);
 
-            Object quantityValue = row.has("available_quantity")
-                    ? row.opt("available_quantity") : row.opt("quantity");
-            BigDecimal quantity = toDecimal(quantityValue);
-            if (quantity != null) {
-                item.stockTotal = item.stockTotal.add(quantity);
-                item.hasStock = true;
+            ProductInfo candidate = new ProductInfo(productId, name, barcode,
+                    price.amount, price.currency, stockQuantity);
+            ProductInfo existing = products.get(productId);
+            if (existing == null || (!existing.hasPrice() && candidate.hasPrice())) {
+                products.put(productId, candidate);
             }
         }
-
-        ArrayList<ProductInfo> results = new ArrayList<>();
-        for (ProductAccumulator item : grouped.values()) {
-            String stock = item.hasStock ? normalizeQuantity(item.stockTotal) : "";
-            results.add(new ProductInfo(item.id, item.name, item.barcode,
-                    item.priceAmount, item.currency, stock));
-        }
-        return results;
     }
 
     private static String findMatchingBarcode(JSONObject product, String query,
@@ -357,20 +308,35 @@ final class WasytBarcodeScanner {
         return null;
     }
 
-    /** Sale price only; never substitute purchase costs. */
-    private static PriceValue extractSalePrice(JSONObject row, JSONObject product) {
-        JSONObject price = row.optJSONObject("product_price");
-        if (price == null) price = product.optJSONObject("price");
+    /** Uses the stock quantity less already reserved units, as returned by WASYT. */
+    private static String extractAvailableQuantity(JSONObject row) {
+        JSONObject stockProduct = row.optJSONObject("stock_product");
+        if (stockProduct == null) return "";
+        BigDecimal quantity = toDecimal(stockProduct.opt("quantity"));
+        if (quantity == null) return "";
+        BigDecimal reserved = toDecimal(stockProduct.opt("reserved_quantity"));
+        if (reserved == null) reserved = BigDecimal.ZERO;
+        BigDecimal available = quantity.subtract(reserved);
+        if (available.signum() < 0) available = BigDecimal.ZERO;
+        return normalizeQuantity(available);
+    }
+
+    /** Reads the seller-facing price object returned by the verified endpoint. */
+    private static PriceValue extractSalePrice(JSONObject row) {
+        JSONObject price = row.optJSONObject("price");
         if (price == null) return new PriceValue(0L, "");
 
+        String currency = price.optString("currency", "uzs");
         BigDecimal amount = toDecimal(price.opt("price"));
-        if (amount == null) amount = toDecimal(price.opt("price_uzs"));
-        if (amount == null || amount.signum() <= 0) return new PriceValue(0L, "");
+        if (amount == null && "uzs".equalsIgnoreCase(currency)) {
+            amount = toDecimal(price.opt("price_uzs"));
+        }
+        if (amount == null || amount.signum() <= 0) return new PriceValue(0L, currency);
         try {
             long rounded = amount.setScale(0, RoundingMode.HALF_UP).longValueExact();
-            return new PriceValue(rounded, price.optString("currency", "uzs"));
+            return new PriceValue(rounded, currency);
         } catch (ArithmeticException ignored) {
-            return new PriceValue(0L, "");
+            return new PriceValue(0L, currency);
         }
     }
 
