@@ -347,8 +347,15 @@ final class WasytSellerApi {
                 profile == null ? "" : profile.optString("full_name", ""),
                 row.optString("created_at", ""),
                 row.optString("sent_at", ""),
-                row.optString("cancel_reason", ""),
-                row.optString("cancel_comment", ""));
+                nullableText(row, "cancel_reason"),
+                nullableText(row, "cancel_comment"));
+    }
+
+    /** Convert JSON null and the literal text "null" to an empty UI value. */
+    private static String nullableText(JSONObject object, String key) {
+        if (object == null || !object.has(key) || object.isNull(key)) return "";
+        String value = object.optString(key, "").trim();
+        return value.isEmpty() || "null".equalsIgnoreCase(value) ? "" : value;
     }
 
     private static void validateCartHeader(long companyId, long stockId,
