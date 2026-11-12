@@ -75,12 +75,17 @@ public class WasytSellerActivity extends Activity {
     private LinearLayout historyFiltersPanel;
     private LinearLayout historyListPanel;
     private TextView historyPageLabel;
+    private TextView historySummaryLabel;
     private int historyPage = 1;
     private int historyLastPage = 1;
+    private int historyServerLastPage = 1;
+    private int historyServerTotal = 0;
     private int historyTotal = 0;
+    private boolean historyLoadingAll = false;
+    private boolean historyAllLoaded = false;
     private String historyFilter = "all";
     private String historyToken = "";
-    private List<WasytSellerApi.Cart> historyPageCarts = new ArrayList<>();
+    private final List<WasytSellerApi.Cart> historyAllCarts = new ArrayList<>();
 
     private static final class CartItem {
         final WasytBarcodeScanner.ProductInfo product;
@@ -673,6 +678,9 @@ public class WasytSellerActivity extends Activity {
         historyPage = 1;
         historyFilter = "all";
         historyToken = WasytSecureStore.getValidToken(this);
+        historyAllCarts.clear();
+        historyAllLoaded = false;
+        historyLoadingAll = false;
 
         historyDialog = new Dialog(this);
         LinearLayout shell = card();
@@ -688,14 +696,29 @@ public class WasytSellerActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         headingText.addView(label("AKSO  /  WASYT", 8, MUTED, true), matchWrap());
         headingText.addView(label("MENING SAVATLARIM", 14, WHITE, true), matchWrap());
+
+        TextView refresh = button("YANGILASH", false);
+        refresh.setTextSize(8);
+        heading.addView(refresh, new LinearLayout.LayoutParams(dp(82), dp(36)));
+        refresh.setOnClickListener(v -> {
+            if (historyLoadingAll) {
+                Toast.makeText(this, "Tarix hozir yangilanmoqda.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            historyPage = 1;
+            loadHistoryPage();
+        });
         TextView close = button("YOPISH", false);
-        heading.addView(close, new LinearLayout.LayoutParams(dp(72), dp(36)));
+        close.setTextSize(8);
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(65), dp(36));
+        closeParams.leftMargin = dp(5);
+        heading.addView(close, closeParams);
         close.setOnClickListener(v -> historyDialog.dismiss());
 
-        TextView summary = label("Savatlar tarixi yuklanmoqda…", 10, LIGHT_GREEN, true);
+        historySummaryLabel = label("Savatlar tarixi yuklanmoqda…", 10, LIGHT_GREEN, true);
         LinearLayout.LayoutParams summaryParams = matchWidth(dp(28));
         summaryParams.topMargin = dp(7);
-        shell.addView(summary, summaryParams);
+        shell.addView(historySummaryLabel, summaryParams);
 
         HorizontalScrollView filterScroll = new HorizontalScrollView(this);
         filterScroll.setHorizontalScrollBarEnabled(false);
@@ -729,10 +752,16 @@ public class WasytSellerActivity extends Activity {
         pageParams.leftMargin = dp(7);
         pager.addView(next, pageParams);
         previous.setOnClickListener(v -> {
-            if (historyPage > 1) { historyPage--; loadHistoryPage(); }
+            if (historyPage > 1) {
+                historyPage--;
+                renderHistoryPage();
+            }
         });
         next.setOnClickListener(v -> {
-            if (historyPage < historyLastPage) { historyPage++; loadHistoryPage(); }
+            if (historyPage < historyLastPage) {
+                historyPage++;
+                renderHistoryPage();
+            }
         });
 
         historyPageLabel = label("", 9, MUTED, false);
@@ -754,26 +783,99 @@ public class WasytSellerActivity extends Activity {
         loadHistoryPage();
     }
 
+    /**
+     * Load every server page sequentially. The visible status filters and local
+     * pagination then operate across the complete history, not just the current
+     * API page. Requests stay sequential to respect WASYT rate limits.
+     */
     private void loadHistoryPage() {
-        if (historyDialog == null || !historyDialog.isShowing()) return;
+        if (historyDialog == null || !historyDialog.isShowing() || historyLoadingAll) return;
+        historyLoadingAll = true;
+        historyAllLoaded = false;
+        historyPage = 1;
+        historyAllCarts.clear();
+        historyServerTotal = 0;
+        historyServerLastPage = 1;
         historyListPanel.removeAllViews();
-        historyListPanel.addView(label("Savatlar yuklanmoqda…", 11, MUTED, false), matchWrap());
-        runNetwork("Savatlar tarixi yuklanmoqda…", () -> {
-            WasytSellerApi.CartPage result = WasytSellerApi.listCartPage(historyToken, historyPage);
-            main.post(() -> {
-                if (isFinishing() || isDestroyed() || historyDialog == null
-                        || !historyDialog.isShowing()) return;
-                historyPage = result.currentPage;
-                historyLastPage = result.lastPage;
-                historyTotal = result.total;
-                historyPageCarts = result.carts;
-                renderHistoryPage();
-            });
+        historyListPanel.addView(label("Savatlar tarixi serverdan olinmoqda…", 11, MUTED, false), matchWrap());
+        historySummaryLabel.setText("WASYT tarixi yuklanmoqda…");
+
+        final String token = historyToken;
+        network.execute(() -> {
+            try {
+                WasytSellerApi.CartPage first = WasytSellerApi.listCartPage(token, 1);
+                ArrayList<WasytSellerApi.Cart> accumulated = new ArrayList<>(first.carts);
+                final int lastPage = Math.max(1, first.lastPage);
+                final int serverTotal = first.total;
+                ArrayList<WasytSellerApi.Cart> firstSnapshot = new ArrayList<>(accumulated);
+                main.post(() -> {
+                    if (!isHistoryDialogVisible()) return;
+                    historyServerLastPage = lastPage;
+                    historyServerTotal = serverTotal;
+                    historyAllCarts.clear();
+                    historyAllCarts.addAll(firstSnapshot);
+                    renderHistoryPage();
+                });
+
+                for (int pageNo = 2; pageNo <= lastPage; pageNo++) {
+                    WasytSellerApi.CartPage next = WasytSellerApi.listCartPage(token, pageNo);
+                    if (next.carts != null) accumulated.addAll(next.carts);
+
+                    if (pageNo == lastPage || pageNo % 3 == 0) {
+                        ArrayList<WasytSellerApi.Cart> snapshot = new ArrayList<>(accumulated);
+                        final int completedPages = pageNo;
+                        main.post(() -> {
+                            if (!isHistoryDialogVisible()) return;
+                            historyAllCarts.clear();
+                            historyAllCarts.addAll(snapshot);
+                            historySummaryLabel.setText("Savatlar yuklanmoqda: "
+                                    + completedPages + " / " + lastPage + " sahifa  ·  "
+                                    + snapshot.size() + " / " + serverTotal + " ta");
+                            renderHistoryPage();
+                        });
+                    }
+                }
+
+                ArrayList<WasytSellerApi.Cart> complete = new ArrayList<>(accumulated);
+                main.post(() -> {
+                    if (!isHistoryDialogVisible()) return;
+                    historyAllCarts.clear();
+                    historyAllCarts.addAll(complete);
+                    historyAllLoaded = true;
+                    historyLoadingAll = false;
+                    historySummaryLabel.setText("Yuklandi: " + complete.size()
+                            + " / " + serverTotal + " ta savat");
+                    renderHistoryPage();
+                });
+            } catch (Exception error) {
+                String message = error.getMessage() == null
+                        ? "Savatlar tarixini yuklab bo'lmadi." : error.getMessage();
+                main.post(() -> {
+                    if (!isHistoryDialogVisible()) return;
+                    historyLoadingAll = false;
+                    historySummaryLabel.setText("Tarix to'liq yuklanmadi. Qayta yangilang.");
+                    renderHistoryPage();
+                    showError("Savatlar tarixi", message);
+                });
+            }
         });
     }
 
+    private boolean isHistoryDialogVisible() {
+        return !isFinishing() && !isDestroyed()
+                && historyDialog != null && historyDialog.isShowing();
+    }
+
+    private List<WasytSellerApi.Cart> filteredHistoryCarts() {
+        ArrayList<WasytSellerApi.Cart> filtered = new ArrayList<>();
+        for (WasytSellerApi.Cart cart : historyAllCarts) {
+            if (matchesHistoryFilter(cart)) filtered.add(cart);
+        }
+        return filtered;
+    }
+
     private void renderHistoryPage() {
-        if (historyListPanel == null || historyFiltersPanel == null) return;
+        if (historyListPanel == null || historyFiltersPanel == null || historyPageLabel == null) return;
         historyFiltersPanel.removeAllViews();
         addHistoryFilter("all", "HAMMASI");
         addHistoryFilter("picking", "TANLOVDA");
@@ -781,23 +883,37 @@ public class WasytSellerActivity extends Activity {
         addHistoryFilter("completed", "YAKUNLANGAN");
         addHistoryFilter("cancelled", "BEKOR QILINGAN");
 
+        List<WasytSellerApi.Cart> filtered = filteredHistoryCarts();
+        historyTotal = filtered.size();
+        historyLastPage = Math.max(1, (historyTotal + 19) / 20);
+        if (historyPage > historyLastPage) historyPage = historyLastPage;
+        int start = (historyPage - 1) * 20;
+        int end = Math.min(start + 20, historyTotal);
+
         historyListPanel.removeAllViews();
-        int visible = 0;
-        for (WasytSellerApi.Cart cart : historyPageCarts) {
-            if (!matchesHistoryFilter(cart)) continue;
-            visible++;
-            addHistoryCartCard(cart);
-        }
-        if (visible == 0) {
+        for (int i = start; i < end; i++) addHistoryCartCard(filtered.get(i));
+
+        if (start == end) {
             LinearLayout empty = card();
-            empty.addView(label(historyPageCarts.isEmpty()
-                    ? "Hozircha savatlar topilmadi."
-                    : "Bu sahifada tanlangan holatdagi savatlar yo'q.", 11, MUTED, false), matchWrap());
+            String message;
+            if (historyLoadingAll) {
+                message = "Qolgan sahifalar yuklanmoqda. Natijalar avtomatik yangilanadi.";
+            } else if (historyTotal == 0 && historyAllLoaded) {
+                message = "Tanlangan holatda savatlar topilmadi.";
+            } else if (historyTotal == 0) {
+                message = "Savatlar tarixini yuklash uchun YANGILASH tugmasini bosing.";
+            } else {
+                message = "Bu sahifada savatlar yo'q.";
+            }
+            empty.addView(label(message, 10, MUTED, false), matchWrap());
             historyListPanel.addView(empty, matchWrap());
         }
-        historyPageLabel.setText("Jami " + historyTotal + " ta savat  ·  "
-                + historyPage + " / " + historyLastPage + "-sahifa  ·  "
-                + visible + " ta ko'rsatilmoqda");
+
+        String progress = historyLoadingAll
+                ? "  ·  yuklanmoqda " + historyAllCarts.size() + "/" + historyServerTotal
+                : "";
+        historyPageLabel.setText("Jami " + historyTotal + " ta  ·  "
+                + historyPage + " / " + historyLastPage + "-sahifa" + progress);
     }
 
     private void addHistoryFilter(String key, String text) {
@@ -814,6 +930,7 @@ public class WasytSellerActivity extends Activity {
         historyFiltersPanel.addView(chip, params);
         chip.setOnClickListener(v -> {
             historyFilter = key;
+            historyPage = 1;
             renderHistoryPage();
         });
     }
@@ -822,6 +939,7 @@ public class WasytSellerActivity extends Activity {
         if ("all".equals(historyFilter)) return true;
         String status = safeLower(cart.status);
         String sale = safeLower(cart.saleStatus);
+        String combined = status + " " + sale;
         if ("picking".equals(historyFilter)) {
             return status.equals("picking") || status.equals("reserved");
         }
@@ -830,12 +948,12 @@ public class WasytSellerActivity extends Activity {
         }
         if ("completed".equals(historyFilter)) {
             return status.equals("completed") || status.equals("done")
-                    || sale.equals("completed") || sale.equals("done") || sale.equals("finished");
+                    || status.equals("finished") || sale.equals("completed")
+                    || sale.equals("done") || sale.equals("finished");
         }
         if ("cancelled".equals(historyFilter)) {
-            return status.contains("cancel") || status.contains("reject")
-                    || sale.contains("cancel") || sale.contains("reject")
-                    || !cart.cancelReason.isEmpty();
+            return combined.contains("cancel") || combined.contains("canceled")
+                    || combined.contains("cancelled") || combined.contains("reject");
         }
         return true;
     }
@@ -847,6 +965,11 @@ public class WasytSellerActivity extends Activity {
     private String cartStatusLabel(WasytSellerApi.Cart cart) {
         String status = safeLower(cart.status);
         String sale = safeLower(cart.saleStatus);
+        String combined = status + " " + sale;
+        if (combined.contains("partial") && combined.contains("cancel")) return "QISMAN BEKOR";
+        if (combined.contains("partial") && combined.contains("return")) return "QISMAN QAYTARILGAN";
+        if (combined.contains("return")) return "QAYTARILGAN";
+        if (combined.contains("cancel") || combined.contains("reject")) return "BEKOR QILINGAN";
         if (status.equals("picking") || status.equals("reserved")) return "TANLOVDA";
         if (status.equals("sent") || status.equals("cashier") || status.equals("cash")) {
             if (sale.equals("completed") || sale.equals("done") || sale.equals("finished")) {
@@ -854,9 +977,9 @@ public class WasytSellerActivity extends Activity {
             }
             return "KASSADA";
         }
-        if (status.contains("cancel") || sale.contains("cancel")
-                || !cart.cancelReason.isEmpty()) return "BEKOR QILINGAN";
-        if (status.equals("completed") || status.equals("done")) return "YAKUNLANGAN";
+        if (status.equals("completed") || status.equals("done") || status.equals("finished")) {
+            return "YAKUNLANGAN";
+        }
         return cart.status.isEmpty() ? "HOLAT NOMA'LUM" : cart.status.toUpperCase(Locale.ROOT);
     }
 
@@ -888,13 +1011,14 @@ public class WasytSellerActivity extends Activity {
         LinearLayout.LayoutParams amountParams = matchWidth(dp(27));
         amountParams.topMargin = dp(7);
         item.addView(amount, amountParams);
-        String sub = cart.createdAt + (cart.sentAt.isEmpty() ? "" : "  ·  Kassaga: " + cart.sentAt);
+        String sub = cart.productsCount + " ta mahsulot  ·  " + cart.createdAt;
+        if (!cart.sentAt.isEmpty()) sub += "  ·  Kassaga: " + cart.sentAt;
         item.addView(label(sub, 8, MUTED, false), matchWrap());
-        if (!cart.cancelReason.isEmpty()) {
-            TextView reason = label("Bekor qilish sababi: " + cart.cancelReason, 9, RED, true);
-            LinearLayout.LayoutParams reasonParams = matchWidth(dp(24));
-            reasonParams.topMargin = dp(4);
-            item.addView(reason, reasonParams);
+        if (!cart.sellerName.isEmpty()) {
+            item.addView(label("Sotuvchi: " + cart.sellerName, 8, MUTED, false), matchWrap());
+        }
+        if (cart.saleId > 0) {
+            item.addView(label("Kassa savdosi #" + cart.saleId, 8, LIGHT_GREEN, false), matchWrap());
         }
         item.setOnClickListener(v -> showCartDetails(cart));
     }
@@ -932,8 +1056,11 @@ public class WasytSellerActivity extends Activity {
         shell.addView(state, stateParams);
         addDetailLine(shell, "Mijoz", cart.clientName);
         if (!details.clientPhone.isEmpty()) addDetailLine(shell, "Telefon", details.clientPhone);
+        if (!cart.sellerName.isEmpty()) addDetailLine(shell, "Sotuvchi", cart.sellerName);
         addDetailLine(shell, "Yaratilgan", cart.createdAt);
         if (!cart.sentAt.isEmpty()) addDetailLine(shell, "Kassaga yuborilgan", cart.sentAt);
+        if (cart.saleId > 0) addDetailLine(shell, "Kassa savdosi ID", String.valueOf(cart.saleId));
+        if (!cart.saleStatus.isEmpty()) addDetailLine(shell, "Kassa holati", cart.saleStatus);
         addDetailLine(shell, "Ombordan bron", details.reserved ? "Ha" : "Yo'q");
 
         TextView productsTitle = label("MAHSULOTLAR  (" + details.products.size() + ")", 10, MUTED, true);
