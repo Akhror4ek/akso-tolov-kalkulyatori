@@ -1072,9 +1072,40 @@ public class WasytSellerActivity extends Activity {
                     WasytSecureStore.getValidToken(this), summary.id);
             main.post(() -> {
                 if (isFinishing() || isDestroyed()) return;
+                updateHistoryCart(details.cart);
                 renderCartDetails(details);
             });
         });
+    }
+
+    private void updateHistoryCart(WasytSellerApi.Cart updated) {
+        if (updated == null || updated.id <= 0) return;
+        for (int i = 0; i < historyAllCarts.size(); i++) {
+            if (historyAllCarts.get(i).id == updated.id) {
+                historyAllCarts.set(i, updated);
+                if (isHistoryDialogVisible()) renderHistoryPage();
+                return;
+            }
+        }
+    }
+
+    private String saleLifecycleLabel(WasytSellerApi.Cart cart) {
+        String sale = safeLower(cart.saleStatus);
+        if (sale.equals("completed") || sale.equals("done")
+                || sale.equals("finished") || sale.equals("paid")
+                || sale.equals("closed")) return "YAKUNLANGAN";
+        if (sale.equals("pending") || sale.equals("processing")
+                || sale.equals("in_progress") || sale.equals("in-progress")) {
+            return "JARAYONDA";
+        }
+        if (sale.contains("cancel") || sale.contains("reject")) return "BEKOR QILINGAN";
+        if (sale.contains("return") || sale.contains("refund")) return "QAYTARILGAN";
+        if (cart.saleId > 0) return "KASSA SAVDOSI BOG'LANGAN";
+        String status = safeLower(cart.status);
+        if (status.equals("sent") || status.equals("cashier") || status.equals("cash")) {
+            return "KASSAGA YUBORILGAN";
+        }
+        return "KASSA SAVDOSI HALI YO'Q";
     }
 
     private void renderCartDetails(WasytSellerApi.CartDetails details) {
@@ -1102,8 +1133,10 @@ public class WasytSellerActivity extends Activity {
         if (!cart.sellerName.isEmpty()) addDetailLine(shell, "Sotuvchi", cart.sellerName);
         addDetailLine(shell, "Yaratilgan", cart.createdAt);
         if (!cart.sentAt.isEmpty()) addDetailLine(shell, "Kassaga yuborilgan", cart.sentAt);
+        addDetailLine(shell, "Savat holati", cartStatusLabel(cart));
+        addDetailLine(shell, "Savdo holati", saleLifecycleLabel(cart));
         if (cart.saleId > 0) addDetailLine(shell, "Kassa savdosi ID", String.valueOf(cart.saleId));
-        if (!cart.saleStatus.isEmpty()) addDetailLine(shell, "Kassa holati", cart.saleStatus);
+        if (!cart.saleStatus.isEmpty()) addDetailLine(shell, "WASYT savdo kodi", cart.saleStatus);
         addDetailLine(shell, "Ombordan bron", details.reserved ? "Ha" : "Yo'q");
 
         TextView productsTitle = label("MAHSULOTLAR  (" + details.products.size() + ")", 10, MUTED, true);
@@ -1162,11 +1195,21 @@ public class WasytSellerActivity extends Activity {
         LinearLayout.LayoutParams actionsParams = matchWidth(dp(43));
         actionsParams.topMargin = dp(8);
         shell.addView(actions, actionsParams);
+        TextView refresh = button("HOLATNI YANGILASH", false);
+        actions.addView(refresh, new LinearLayout.LayoutParams(
+                isCartCancelable(cart) ? 0 : ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(42), isCartCancelable(cart) ? 1f : 0f));
+        refresh.setOnClickListener(v -> {
+            dialog.dismiss();
+            showCartDetails(cart);
+        });
         if (isCartCancelable(cart)) {
             TextView cancel = button("SAVATNI BEKOR QILISH", false);
             cancel.setTextColor(RED);
             cancel.setBackground(rounded(0x663D211F, 0x66251515, 13, 0x99E36A65));
-            actions.addView(cancel, new LinearLayout.LayoutParams(0, dp(42), 1f));
+            LinearLayout.LayoutParams cancelParams = new LinearLayout.LayoutParams(0, dp(42), 1f);
+            cancelParams.leftMargin = dp(7);
+            actions.addView(cancel, cancelParams);
             cancel.setOnClickListener(v -> {
                 dialog.dismiss();
                 confirmCancelCart(cart);
