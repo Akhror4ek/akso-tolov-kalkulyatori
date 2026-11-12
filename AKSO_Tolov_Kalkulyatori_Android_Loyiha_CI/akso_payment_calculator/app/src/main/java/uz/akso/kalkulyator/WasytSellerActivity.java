@@ -214,6 +214,8 @@ public class WasytSellerActivity extends Activity {
             fixedDiscount = !fixedDiscount;
             discountModeButton.setText(fixedDiscount ? "ANIQ SUMMA" : "FOIZ %");
             discountInput.setHint(fixedDiscount ? "Yakuniy summa (so'm)" : "Chegirma foizi");
+            // A value entered in the previous mode has a different meaning.
+            discountInput.setText("");
             updateTotal();
         });
         discountInput = input("Chegirma foizi", InputType.TYPE_CLASS_NUMBER
@@ -1183,8 +1185,12 @@ public class WasytSellerActivity extends Activity {
      */
     private long calculateDiscountAmount() throws Exception {
         long subtotal = calculateSubtotal();
+        boolean hasInput = discountInput != null
+                && !discountInput.getText().toString().trim().isEmpty();
         long entered = parseDiscountInput();
         if (fixedDiscount) {
+            // An untouched fixed-total field means no discount, not a free sale.
+            if (!hasInput) return 0L;
             if (entered > subtotal) {
                 throw new Exception("Yakuniy summa mahsulotlar summasidan katta bo'lmasligi kerak.");
             }
@@ -1202,6 +1208,10 @@ public class WasytSellerActivity extends Activity {
         long subtotal = calculateSubtotal();
         try {
             if (fixedDiscount) {
+                if (discountInput == null
+                        || discountInput.getText().toString().trim().isEmpty()) {
+                    return subtotal;
+                }
                 long enteredFinalTotal = parseDiscountInput();
                 // Keep the preview within the available subtotal while typing;
                 // checkout validates and rejects values greater than subtotal.
