@@ -139,7 +139,7 @@ final class WasytSellerApi {
         // validates any present image value as an uploaded file.
         // The seller form always submits an empty image_old_keys[] array when
         // creating a client without previous images. Preserve this required field.
-        fields.put("image_old_keys[]", "");
+        fields.put("image_old_keys", "[]");
 
         JSONObject response = request("POST", "/company/client/client/", token, fields);
         JSONObject data = unwrapObject(response);
