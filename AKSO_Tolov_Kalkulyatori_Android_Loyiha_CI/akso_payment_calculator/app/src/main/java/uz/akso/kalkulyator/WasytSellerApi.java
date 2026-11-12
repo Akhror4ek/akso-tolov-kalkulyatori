@@ -76,22 +76,82 @@ final class WasytSellerApi {
         final long id;
         final String code;
         final String status;
+        final String saleStatus;
         final long amount;
         final long discountAmount;
         final long totalAmount;
         final String clientName;
         final String createdAt;
+        final String sentAt;
+        final String cancelReason;
+        final String cancelComment;
 
-        Cart(long id, String code, String status, long amount, long discountAmount,
-             long totalAmount, String clientName, String createdAt) {
+        Cart(long id, String code, String status, String saleStatus,
+             long amount, long discountAmount, long totalAmount,
+             String clientName, String createdAt, String sentAt,
+             String cancelReason, String cancelComment) {
             this.id = id;
             this.code = safe(code);
             this.status = safe(status);
+            this.saleStatus = safe(saleStatus);
             this.amount = amount;
             this.discountAmount = discountAmount;
             this.totalAmount = totalAmount;
             this.clientName = safe(clientName);
             this.createdAt = safe(createdAt);
+            this.sentAt = safe(sentAt);
+            this.cancelReason = safe(cancelReason);
+            this.cancelComment = safe(cancelComment);
+        }
+    }
+
+    static final class CartPage {
+        final List<Cart> carts;
+        final int currentPage;
+        final int lastPage;
+        final int total;
+
+        CartPage(List<Cart> carts, int currentPage, int lastPage, int total) {
+            this.carts = carts;
+            this.currentPage = currentPage;
+            this.lastPage = lastPage;
+            this.total = total;
+        }
+    }
+
+    static final class CartProduct {
+        final long id;
+        final String name;
+        final String barcode;
+        final int quantity;
+        final long price;
+        final long discount;
+        final String unit;
+
+        CartProduct(long id, String name, String barcode, int quantity,
+                    long price, long discount, String unit) {
+            this.id = id;
+            this.name = safe(name);
+            this.barcode = safe(barcode);
+            this.quantity = quantity;
+            this.price = price;
+            this.discount = discount;
+            this.unit = safe(unit);
+        }
+    }
+
+    static final class CartDetails {
+        final Cart cart;
+        final String clientPhone;
+        final boolean reserved;
+        final List<CartProduct> products;
+
+        CartDetails(Cart cart, String clientPhone, boolean reserved,
+                    List<CartProduct> products) {
+            this.cart = cart;
+            this.clientPhone = safe(clientPhone);
+            this.reserved = reserved;
+            this.products = products;
         }
     }
 
@@ -191,44 +251,90 @@ final class WasytSellerApi {
                 + "/send?_method=PATCH", token, fields);
     }
 
-    static JSONObject cancelCart(String token, long cartId) throws IOException {
+    static JSONObject cancelCart(String token, long cartId,
+                                  String reason, String comment) throws IOException {
         if (cartId <= 0) throw new IOException("Savat ID noto'g'ri.");
+        String safeReason = safe(reason).trim();
+        if (safeReason.isEmpty()) throw new IOException("Savatni bekor qilish sababini tanlang.");
         LinkedHashMap<String, String> fields = new LinkedHashMap<>();
         fields.put("_method", "PATCH");
+        fields.put("cancel_reason", safeReason);
+        if (!safe(comment).trim().isEmpty()) {
+            fields.put("cancel_comment", safe(comment).trim());
+        }
         return request("POST", "/company/trade/seller-cart/" + cartId
                 + "/cancel?_method=PATCH", token, fields);
     }
 
-    static List<Cart> listCarts(String token, int page) throws IOException {
-        String path = "/company/trade/seller-cart?page-size=20&page=" + Math.max(1, page)
+    static CartPage listCartPage(String token, int page) throws IOException {
+        int requestedPage = Math.max(1, page);
+        String path = "/company/trade/seller-cart?page-size=20&page=" + requestedPage
                 + "&with%5B%5D=client&with%5B%5D=creator.profile"
                 + "&sort%5B%5D=-created_at";
         JSONObject response = request("GET", path, token, null);
         JSONArray rows = response.optJSONArray("data");
         ArrayList<Cart> carts = new ArrayList<>();
-        if (rows == null) return carts;
-
-        for (int i = 0; i < rows.length(); i++) {
-            JSONObject row = rows.optJSONObject(i);
-            if (row == null) continue;
-            JSONObject client = row.optJSONObject("client");
-            carts.add(new Cart(
-                    row.optLong("id", -1L),
-                    row.optString("code", ""),
-                    row.optString("status", ""),
-                    row.optLong("amount", 0L),
-                    row.optLong("discount_amount", 0L),
-                    row.optLong("total_amount", row.optLong("amount", 0L)),
-                    client == null ? "" : client.optString("full_name", ""),
-                    row.optString("created_at", "")));
+        if (rows != null) {
+            for (int i = 0; i < rows.length(); i++) {
+                JSONObject row = rows.optJSONObject(i);
+                if (row == null) continue;
+                JSONObject client = row.optJSONObject("client");
+                carts.add(parseCart(row, client));
+            }
         }
-        return carts;
+        JSONObject meta = response.optJSONObject("meta");
+        int current = meta == null ? requestedPage : meta.optInt("current_page", requestedPage);
+        int last = meta == null ? current : meta.optInt("last_page", current);
+        int total = meta == null ? carts.size() : meta.optInt("total", carts.size());
+        return new CartPage(carts, Math.max(1, current), Math.max(1, last), Math.max(0, total));
     }
 
-    static JSONObject getCart(String token, long cartId) throws IOException {
+    /** Compatibility wrapper retained for older call sites. */
+    static List<Cart> listCarts(String token, int page) throws IOException {
+        return listCartPage(token, page).carts;
+    }
+
+    static CartDetails getCartDetails(String token, long cartId) throws IOException {
         if (cartId <= 0) throw new IOException("Savat ID noto'g'ri.");
-        return request("GET", "/company/trade/seller-cart/" + cartId
+        JSONObject response = request("GET", "/company/trade/seller-cart/" + cartId
                 + "?with%5B%5D=client&with%5B%5D=products", token, null);
+        JSONObject row = unwrapObject(response);
+        JSONObject client = row.optJSONObject("client");
+        JSONArray rows = row.optJSONArray("products");
+        ArrayList<CartProduct> products = new ArrayList<>();
+        if (rows != null) {
+            for (int i = 0; i < rows.length(); i++) {
+                JSONObject product = rows.optJSONObject(i);
+                if (product == null) continue;
+                products.add(new CartProduct(
+                        product.optLong("id", -1L),
+                        product.optString("name", product.optString("value", "Nomsiz mahsulot")),
+                        product.optString("barcode", ""),
+                        product.optInt("quantity", 0),
+                        product.optLong("price", product.optLong("amount", 0L)),
+                        product.optLong("discount", 0L),
+                        product.optString("unit", "")));
+            }
+        }
+        return new CartDetails(parseCart(row, client),
+                client == null ? "" : client.optString("main_phone", ""),
+                row.optBoolean("is_reserved", false), products);
+    }
+
+    private static Cart parseCart(JSONObject row, JSONObject client) {
+        return new Cart(
+                row.optLong("id", -1L),
+                row.optString("code", ""),
+                row.optString("status", ""),
+                row.optString("sale_status", ""),
+                row.optLong("amount", 0L),
+                row.optLong("discount_amount", 0L),
+                row.optLong("total_amount", row.optLong("amount", 0L)),
+                client == null ? "" : client.optString("full_name", ""),
+                row.optString("created_at", ""),
+                row.optString("sent_at", ""),
+                row.optString("cancel_reason", ""),
+                row.optString("cancel_comment", ""));
     }
 
     private static void validateCartHeader(long companyId, long stockId,
