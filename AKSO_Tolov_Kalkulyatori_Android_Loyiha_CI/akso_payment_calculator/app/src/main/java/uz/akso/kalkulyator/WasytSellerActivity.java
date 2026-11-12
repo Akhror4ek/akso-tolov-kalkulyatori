@@ -64,6 +64,7 @@ public class WasytSellerActivity extends Activity {
     private ViewTreeObserver.OnGlobalLayoutListener sellerKeyboardLayoutListener;
     private boolean sellerImeVisible = false;
     private int sellerImeBottomInset = 0;
+    private int sellerScrollBaseHeight = 0;
     private LinearLayout resultsPanel;
     private LinearLayout cartPanel;
     private EditText productQuery;
@@ -307,6 +308,9 @@ public class WasytSellerActivity extends Activity {
         });
 
         sellerKeyboardLayoutListener = () -> {
+            if (!sellerImeVisible && sellerScroll != null) {
+                sellerScrollBaseHeight = sellerScroll.getHeight();
+            }
             if (discountInput != null && discountInput.hasFocus()) {
                 updateSellerKeyboardPadding();
                 scrollDiscountEditorAboveKeyboard();
@@ -324,19 +328,30 @@ public class WasytSellerActivity extends Activity {
         int[] location = new int[2];
         sellerScroll.getLocationOnScreen(location);
         int scrollBottom = location[1] + sellerScroll.getHeight();
-        // If the decor view is edge-to-edge, this is the part covered by IME.
-        // When Android already resized the window this value is zero.
-        int covered = Math.max(0, scrollBottom - visible.bottom);
-        if (Build.VERSION.SDK_INT >= 30 && sellerImeVisible
-                && covered == 0 && sellerImeBottomInset > dp(80)) {
-            // Fallback for devices where the visible display frame is not updated.
-            covered = Math.max(0, sellerImeBottomInset - dp(24));
-        }
+        int visibleBottom = getSellerKeyboardVisibleBottom(visible, location, scrollBottom);
+        // Padding is only the portion actually covered by IME. If Android has
+        // already resized the activity, visibleBottom equals scrollBottom.
+        int covered = Math.max(0, scrollBottom - visibleBottom);
         int wanted = sellerImeVisible ? covered : 0;
         if (sellerScroll.getPaddingBottom() != wanted) {
             sellerScroll.setPadding(sellerScroll.getPaddingLeft(),
                     sellerScroll.getPaddingTop(), sellerScroll.getPaddingRight(), wanted);
         }
+    }
+
+    private int getSellerKeyboardVisibleBottom(Rect visible, int[] rootLocation,
+                                               int rootBottom) {
+        int visibleBottom = visible.bottom;
+        if (Build.VERSION.SDK_INT >= 30 && sellerImeVisible
+                && sellerImeBottomInset > dp(80)) {
+            boolean decorAlreadyResized = sellerScrollBaseHeight > 0
+                    && sellerScrollBaseHeight - sellerScroll.getHeight() > dp(100);
+            if (!decorAlreadyResized) {
+                int imeTop = rootBottom - sellerImeBottomInset;
+                visibleBottom = Math.min(visibleBottom, imeTop);
+            }
+        }
+        return visibleBottom;
     }
 
     private void scrollDiscountEditorAboveKeyboard() {
@@ -347,10 +362,14 @@ public class WasytSellerActivity extends Activity {
 
         int[] fieldLocation = new int[2];
         discountInput.getLocationOnScreen(fieldLocation);
+        int[] rootLocation = new int[2];
+        sellerScroll.getLocationOnScreen(rootLocation);
+        int rootBottom = rootLocation[1] + sellerScroll.getHeight();
+        int visibleBottom = getSellerKeyboardVisibleBottom(visible, rootLocation, rootBottom);
         int fieldTop = fieldLocation[1];
         int fieldBottom = fieldTop + discountInput.getHeight();
         int safeTop = visible.top + dp(12);
-        int safeBottom = visible.bottom - dp(28);
+        int safeBottom = visibleBottom - dp(28);
 
         if (fieldBottom > safeBottom) {
             sellerScroll.scrollBy(0, fieldBottom - safeBottom);
