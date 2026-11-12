@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.app.ProgressDialog;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -861,6 +862,31 @@ public class WasytSellerActivity extends Activity {
         });
     }
 
+    private static final String PREF_CANCEL_REASONS = "wasyt_seller_cancel_reasons";
+
+    private void saveLocalCancellationMetadata(long cartId, String reason, String comment) {
+        if (cartId <= 0) return;
+        SharedPreferences preferences = getSharedPreferences(PREF_CANCEL_REASONS, MODE_PRIVATE);
+        preferences.edit()
+                .putString("reason_" + cartId, reason == null ? "" : reason)
+                .putString("comment_" + cartId, comment == null ? "" : comment)
+                .apply();
+    }
+
+    private String getDisplayedCancelReason(WasytSellerApi.Cart cart) {
+        if (cart != null && !cart.cancelReason.isEmpty()) return cart.cancelReason;
+        if (cart == null || cart.id <= 0) return "";
+        return getSharedPreferences(PREF_CANCEL_REASONS, MODE_PRIVATE)
+                .getString("reason_" + cart.id, "");
+    }
+
+    private String getDisplayedCancelComment(WasytSellerApi.Cart cart) {
+        if (cart != null && !cart.cancelComment.isEmpty()) return cart.cancelComment;
+        if (cart == null || cart.id <= 0) return "";
+        return getSharedPreferences(PREF_CANCEL_REASONS, MODE_PRIVATE)
+                .getString("comment_" + cart.id, "");
+    }
+
     private boolean isHistoryDialogVisible() {
         return !isFinishing() && !isDestroyed()
                 && historyDialog != null && historyDialog.isShowing();
@@ -953,7 +979,8 @@ public class WasytSellerActivity extends Activity {
         }
         if ("cancelled".equals(historyFilter)) {
             return combined.contains("cancel") || combined.contains("canceled")
-                    || combined.contains("cancelled") || combined.contains("reject");
+                    || combined.contains("cancelled") || combined.contains("reject")
+                    || !getDisplayedCancelReason(cart).isEmpty();
         }
         return true;
     }
@@ -969,7 +996,8 @@ public class WasytSellerActivity extends Activity {
         if (combined.contains("partial") && combined.contains("cancel")) return "QISMAN BEKOR";
         if (combined.contains("partial") && combined.contains("return")) return "QISMAN QAYTARILGAN";
         if (combined.contains("return")) return "QAYTARILGAN";
-        if (combined.contains("cancel") || combined.contains("reject")) return "BEKOR QILINGAN";
+        if (combined.contains("cancel") || combined.contains("reject")
+                || !getDisplayedCancelReason(cart).isEmpty()) return "BEKOR QILINGAN";
         if (status.equals("picking") || status.equals("reserved")) return "TANLOVDA";
         if (status.equals("sent") || status.equals("cashier") || status.equals("cash")) {
             if (sale.equals("completed") || sale.equals("done") || sale.equals("finished")) {
@@ -1019,6 +1047,10 @@ public class WasytSellerActivity extends Activity {
         }
         if (cart.saleId > 0) {
             item.addView(label("Kassa savdosi #" + cart.saleId, 8, LIGHT_GREEN, false), matchWrap());
+        }
+        String localReason = getDisplayedCancelReason(cart);
+        if (!localReason.isEmpty()) {
+            item.addView(label("Bekor qilish sababi: " + localReason, 8, RED, true), matchWrap());
         }
         item.setOnClickListener(v -> showCartDetails(cart));
     }
@@ -1106,9 +1138,12 @@ public class WasytSellerActivity extends Activity {
         LinearLayout.LayoutParams totalParams = matchWidth(dp(35));
         totalParams.topMargin = dp(5);
         shell.addView(total, totalParams);
-        if (!cart.cancelReason.isEmpty()) {
-            addDetailLine(shell, "Bekor qilish sababi", cart.cancelReason);
-            if (!cart.cancelComment.isEmpty()) addDetailLine(shell, "Izoh", cart.cancelComment);
+        String cancelReason = getDisplayedCancelReason(cart);
+        String cancelComment = getDisplayedCancelComment(cart);
+        if (!cancelReason.isEmpty()) {
+            addDetailLine(shell, "Bekor qilish sababi",
+                    cancelReason + (cart.cancelReason.isEmpty() ? " (shu qurilmada)" : ""));
+            if (!cancelComment.isEmpty()) addDetailLine(shell, "Izoh", cancelComment);
         }
 
         LinearLayout actions = new LinearLayout(this);
@@ -1240,7 +1275,8 @@ public class WasytSellerActivity extends Activity {
                 WasytSellerApi.cancelCart(token, cart.id, reason, note);
                 main.post(() -> {
                     if (isFinishing() || isDestroyed()) return;
-                    showStatus("Savat #" + cart.code + " bekor qilindi.", LIGHT_GREEN);
+                    saveLocalCancellationMetadata(cart.id, reason, note);
+                    showStatus("Savat #" + cart.code + " bekor qilindi. Sabab ushbu qurilmada saqlandi.", LIGHT_GREEN);
                     loadHistoryPage();
                 });
             });
