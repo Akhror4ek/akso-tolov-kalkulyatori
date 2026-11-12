@@ -135,10 +135,11 @@ final class WasytSellerApi {
         fields.put("socials[facebook]", "");
         fields.put("socials[other]", "");
         fields.put("languages[]", "ru".equalsIgnoreCase(language) ? "ru" : "uz");
-        // No client photo is selected in the seller quick-create form.
-        // Do not send an empty "image" part: WASYT validates any present image
-        // part as an uploaded file and rejects an empty text field with HTTP 422.
-        // image_old_keys[] is also omitted because this is a new client without prior images.
+        // No client photo is selected: omit the "image" part because WASYT
+        // validates any present image value as an uploaded file.
+        // The seller form always submits an empty image_old_keys[] array when
+        // creating a client without previous images. Preserve this required field.
+        fields.put("image_old_keys[]", "");
 
         JSONObject response = request("POST", "/company/client/client/", token, fields);
         JSONObject data = unwrapObject(response);
