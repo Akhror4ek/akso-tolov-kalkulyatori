@@ -1,6 +1,6 @@
 # WASYT seller workflow — observed API contract
 
-This document records the WASYT seller requests observed in the AKSO Finance integration investigation. It is based on successful browser requests and responses captured by the project owner on 2026-11-11. The product endpoint details are cross-checked against the WASYT API reference at https://docs.wasyt.dev/internal/reference/company/stock/product.
+This document records the WASYT seller requests observed in the AKSO Finance integration investigation. It is based on successful browser requests and responses captured by the project owner on 2026-11-11. The product search endpoint and response shape are based on the project owner's successful WASYT seller Network capture from 2026-11-12.
 
 ## Authentication and safety
 
@@ -14,29 +14,36 @@ This document records the WASYT seller requests observed in the AKSO Finance int
 
 ### 1. Search products in the selected seller warehouse
 
-`GET /company/stock/product`
+`GET /common/public/records/product`
 
-Required filters:
+This is the exact endpoint captured from the WASYT seller product picker on 2026-11-12. The request returned HTTP 200 for seller account company `2762`, selected warehouse `487`, and search term `sandiq`.
+
+Required query parameters:
 - `filter[stock_id]=<selected stock id>`
-- `filter[common]=<product name, barcode or PLU>`
-- `page-size=20` (WASYT API maximum)
+- `filter[company_id]=<active company id>`
+- `filter[has_price]=1`
+- `filter[with_reserved_quantity]=1`
+- `filter[stock_quantity][]=0.0001`
+- `filter[name_or_barcode]=<product name or barcode>`
 - `page=1`
+- `page-size=20`
 
-Recommended relations:
-- `with[]=stock`
-- `with[]=product`
-- `with[]=product.unit`
-- `with[]=product.price`
-- `with[]=product.brand`
-- `with[]=product.category.ancestors`
-- `with[]=product_price`
-- `with[]=available_quantity`
-- `with[]=reserved_quantity`
-- `with[]=status`
+Example request:
+```
+GET https://api.wasyt.uz/common/public/records/product?filter[stock_id]=487&filter[company_id]=2762&filter[has_price]=1&filter[with_reserved_quantity]=1&filter[stock_quantity][]=0.0001&filter[name_or_barcode]=sandiq&page=1&page-size=20
+```
 
-The WASYT API reference documents this endpoint as the selected warehouse-position list and says `filter[common]` searches by product name, barcode and PLU. Its `data[]` rows include `stock_id`, `product_id`, `quantity`, with the requested `product` and `product_price` relations.
+The successful response uses flat product records in `data[]`, not a nested `product` object. Relevant fields:
+- `id`: product ID to send in `products[n][id]`
+- `value`: product display name
+- `barcode`, `additional_barcodes[]`, `industrial_barcode`
+- `price.price` and `price.currency`
+- `stock_product.quantity`
+- `stock_product.reserved_quantity`
 
-The catalog-wide endpoint `GET /company/stock/product/catalog` is a different route. It returned HTTP 403 for the linked AKSO seller account during Android testing, so the Android seller search must use `/company/stock/product` instead. Never work around a 403 by impersonating an administrator or using another user's token.
+Available stock for display is `stock_product.quantity - stock_product.reserved_quantity`, floored at zero. The captured UZS price is read from `price.price`; do not use purchase-cost fields as a substitute.
+
+The previous Android attempts used `/company/stock/product/catalog` and then `/company/stock/product`. Neither matches the seller UI's captured successful request. Android seller product search must use `/common/public/records/product` with the filters above. Never work around a 403 by impersonating an administrator or using another user's token.
 
 ### 2. Search clients
 
