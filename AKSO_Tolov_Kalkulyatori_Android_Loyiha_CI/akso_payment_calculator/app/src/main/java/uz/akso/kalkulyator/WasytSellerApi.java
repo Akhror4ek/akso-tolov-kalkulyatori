@@ -87,6 +87,8 @@ final class WasytSellerApi {
         final String sellerName;
         final String createdAt;
         final String sentAt;
+        final String updatedAt;
+        final String completedAt;
         final String cancelReason;
         final String cancelComment;
 
@@ -94,6 +96,7 @@ final class WasytSellerApi {
              String status, String saleStatus, long amount, long discountAmount,
              long totalAmount, String clientName, String clientPhone,
              String sellerName, String createdAt, String sentAt,
+             String updatedAt, String completedAt,
              String cancelReason, String cancelComment) {
             this.id = id;
             this.saleId = saleId;
@@ -109,6 +112,8 @@ final class WasytSellerApi {
             this.sellerName = safe(sellerName);
             this.createdAt = safe(createdAt);
             this.sentAt = safe(sentAt);
+            this.updatedAt = safe(updatedAt);
+            this.completedAt = safe(completedAt);
             this.cancelReason = safe(cancelReason);
             this.cancelComment = safe(cancelComment);
         }
@@ -347,8 +352,21 @@ final class WasytSellerApi {
                 profile == null ? "" : profile.optString("full_name", ""),
                 row.optString("created_at", ""),
                 row.optString("sent_at", ""),
+                nullableText(row, "updated_at"),
+                firstNonEmpty(nullableText(row, "completed_at"),
+                        nullableText(row, "sale_completed_at"),
+                        nullableText(row, "sold_at")),
                 nullableText(row, "cancel_reason"),
                 nullableText(row, "cancel_comment"));
+    }
+
+    private static String firstNonEmpty(String... values) {
+        if (values == null) return "";
+        for (String value : values) {
+            String candidate = safe(value).trim();
+            if (!candidate.isEmpty() && !"null".equalsIgnoreCase(candidate)) return candidate;
+        }
+        return "";
     }
 
     /** Convert JSON null and the literal text "null" to an empty UI value. */
