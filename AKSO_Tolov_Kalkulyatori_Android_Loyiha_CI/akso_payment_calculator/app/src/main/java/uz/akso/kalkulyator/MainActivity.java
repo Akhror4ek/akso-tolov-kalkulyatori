@@ -3866,7 +3866,6 @@ public class MainActivity extends Activity {
         if (drawerOverlay == null) return;
         if (drawerHourlyRefresh != null) drawerHandler.removeCallbacks(drawerHourlyRefresh);
         if (drawerCachePoll != null) drawerHandler.removeCallbacks(drawerCachePoll);
-        salesSyncExecutor.shutdownNow();
 
         final FrameLayout oldOverlay = drawerOverlay;
         final View oldPanel = drawerPanel;
@@ -4028,6 +4027,10 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         if (sellerQuizDialog != null && sellerQuizDialog.isShowing()) sellerQuizDialog.dismiss();
         if (drawerHourlyRefresh != null) drawerHandler.removeCallbacks(drawerHourlyRefresh);
+        if (drawerCachePoll != null) drawerHandler.removeCallbacks(drawerCachePoll);
+        // This executor also loads WASYT sales for the calendar. Keep it alive while
+        // MainActivity is active; only stop it when the Activity itself is destroyed.
+        salesSyncExecutor.shutdownNow();
         if (drawerCachePoll != null) drawerHandler.removeCallbacks(drawerCachePoll);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && mainScrollView != null) {
             mainScrollView.setRenderEffect(null);
