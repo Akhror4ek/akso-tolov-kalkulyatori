@@ -874,16 +874,7 @@ public class WasytSellerActivity extends Activity {
     }
 
     private boolean isCompletedSaleCart(WasytSellerApi.Cart cart) {
-        if (cart == null || isCartCancelled(cart)) return false;
-        String status = safeLower(cart.status);
-        String sale = safeLower(cart.saleStatus);
-        return isCompletedSaleState(status) || isCompletedSaleState(sale);
-    }
-
-    private boolean isCompletedSaleState(String value) {
-        return "completed".equals(value) || "done".equals(value)
-                || "finished".equals(value) || "paid".equals(value)
-                || "closed".equals(value) || "sold".equals(value);
+        return WasytSalesRepository.isCompletedSale(this, cart);
     }
 
     private void showMySalesCalendar() {
@@ -1016,51 +1007,14 @@ public class WasytSellerActivity extends Activity {
             return;
         }
         mySalesLoading = true;
-        myCompletedSales.clear();
         mySalesLoadLabel.setText("WASYT yakunlangan savdolari yuklanmoqda…");
         refreshMySalesCalendar();
 
         final String token = mySalesToken;
         network.execute(() -> {
             try {
-                WasytSellerApi.CartPage first = WasytSellerApi.listCartPage(token, 1);
-                ArrayList<WasytSellerApi.Cart> completed = new ArrayList<>();
-                for (WasytSellerApi.Cart cart : first.carts) {
-                    if (isCompletedSaleCart(cart)) completed.add(cart);
-                }
-                final int lastPage = Math.max(1, first.lastPage);
-                final int serverTotal = first.total;
-                main.post(() -> {
-                    if (!isMySalesDialogVisible()) return;
-                    myCompletedSales.clear();
-                    myCompletedSales.addAll(completed);
-                    mySalesLoadLabel.setText("Savdolar olinmoqda: 1 / " + lastPage
-                            + " sahifa  ·  " + completed.size() + " ta yakunlangan");
-                    refreshMySalesCalendar();
-                });
-
-                for (int pageNo = 2; pageNo <= lastPage; pageNo++) {
-                    WasytSellerApi.CartPage next = WasytSellerApi.listCartPage(token, pageNo);
-                    if (next.carts != null) {
-                        for (WasytSellerApi.Cart cart : next.carts) {
-                            if (isCompletedSaleCart(cart)) completed.add(cart);
-                        }
-                    }
-                    if (pageNo == lastPage || pageNo % 3 == 0) {
-                        ArrayList<WasytSellerApi.Cart> snapshot = new ArrayList<>(completed);
-                        final int donePages = pageNo;
-                        main.post(() -> {
-                            if (!isMySalesDialogVisible()) return;
-                            myCompletedSales.clear();
-                            myCompletedSales.addAll(snapshot);
-                            mySalesLoadLabel.setText("Savdolar olinmoqda: " + donePages
-                                    + " / " + lastPage + " sahifa  ·  "
-                                    + snapshot.size() + " / " + serverTotal + " savat tekshirildi");
-                            refreshMySalesCalendar();
-                        });
-                    }
-                }
-
+                List<WasytSellerApi.Cart> completed =
+                        WasytSalesRepository.loadCompletedSales(this, token);
                 ArrayList<WasytSellerApi.Cart> result = new ArrayList<>(completed);
                 main.post(() -> {
                     if (!isMySalesDialogVisible()) return;
@@ -1106,58 +1060,19 @@ public class WasytSellerActivity extends Activity {
     }
 
     private Calendar getCompletedSaleDate(WasytSellerApi.Cart cart) {
-        String[] candidates = {
-                cart.completedAt, cart.updatedAt, cart.sentAt, cart.createdAt
-        };
-        String[] patterns = {
-                "yyyy-MM-dd HH:mm:ss",
-                "yyyy-MM-dd'T'HH:mm:ss.SSSX",
-                "yyyy-MM-dd'T'HH:mm:ssX",
-                "yyyy-MM-dd'T'HH:mm:ss",
-                "yyyy-MM-dd"
-        };
-        for (String candidate : candidates) {
-            if (candidate == null || candidate.trim().isEmpty()
-                    || "null".equalsIgnoreCase(candidate.trim())) continue;
-            for (String pattern : patterns) {
-                try {
-                    SimpleDateFormat parser = new SimpleDateFormat(pattern, Locale.US);
-                    parser.setLenient(false);
-                    Date parsed = parser.parse(candidate.trim());
-                    if (parsed != null) {
-                        Calendar date = Calendar.getInstance();
-                        date.setTime(parsed);
-                        return date;
-                    }
-                } catch (Exception ignored) { }
-            }
-        }
-        return null;
+        return WasytSalesRepository.getSaleDate(cart);
     }
 
     private boolean isSameMySalesDate(Calendar first, Calendar second) {
-        return first.get(Calendar.YEAR) == second.get(Calendar.YEAR)
-                && first.get(Calendar.DAY_OF_YEAR) == second.get(Calendar.DAY_OF_YEAR);
+        return WasytSalesRepository.isSameDate(first, second);
     }
 
     private BigDecimal getMySalesForDate(Calendar date) {
-        BigDecimal total = BigDecimal.ZERO;
-        for (WasytSellerApi.Cart cart : myCompletedSales) {
-            Calendar saleDate = getCompletedSaleDate(cart);
-            if (saleDate != null && isSameMySalesDate(saleDate, date)) {
-                total = total.add(BigDecimal.valueOf(Math.max(0L, cart.totalAmount)));
-            }
-        }
-        return total;
+        return WasytSalesRepository.getDailyTotal(myCompletedSales, date);
     }
 
     private int getMySalesCountForDate(Calendar date) {
-        int count = 0;
-        for (WasytSellerApi.Cart cart : myCompletedSales) {
-            Calendar saleDate = getCompletedSaleDate(cart);
-            if (saleDate != null && isSameMySalesDate(saleDate, date)) count++;
-        }
-        return count;
+        return WasytSalesRepository.getDailyCount(myCompletedSales, date);
     }
 
     private String compactMySalesAmount(BigDecimal amount) {
