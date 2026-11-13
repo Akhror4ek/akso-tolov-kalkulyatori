@@ -4040,14 +4040,13 @@ public class MainActivity extends Activity {
         private float downX;
         private float downY;
         private boolean trackingGesture;
+        private boolean openingFromGesture;
 
-        // A rightward horizontal swipe can start anywhere on the home screen.
-        // Vertical gestures are still passed to the calculator's ScrollView.
+        // A horizontal pull may start anywhere on the home screen.
         private int getDrawerGestureStartWidth() {
             return getWidth() > 0 ? getWidth() : getResources().getDisplayMetrics().widthPixels;
         }
 
-        // A shorter activation distance makes the drawer feel immediate.
         private int getDrawerSwipeDistance() {
             return dp(30);
         }
@@ -4060,7 +4059,8 @@ public class MainActivity extends Activity {
                 case MotionEvent.ACTION_DOWN:
                     downX = event.getX();
                     downY = event.getY();
-                    trackingGesture = drawerOverlay == null
+                    openingFromGesture = drawerOverlay == null;
+                    trackingGesture = openingFromGesture
                             ? downX <= getDrawerGestureStartWidth()
                             : downX <= drawerWidthPx + dp(24);
                     break;
@@ -4070,11 +4070,14 @@ public class MainActivity extends Activity {
                         float dy = event.getY() - downY;
                         boolean horizontal = Math.abs(dx) > getDrawerSwipeDistance()
                                 && Math.abs(dx) > Math.abs(dy) * 1.15f;
-                        if (horizontal && ((drawerOverlay == null && dx > 0)
-                                || (drawerOverlay != null && dx < 0))) return true;
+                        if (horizontal && openingFromGesture && dx > 0) {
+                            if (drawerOverlay == null) openSalesInspirationDrawer();
+                            return true;
+                        }
+                        if (horizontal && !openingFromGesture && dx < 0
+                                && drawerOverlay != null) return true;
                     }
                     break;
-                case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL:
                     trackingGesture = false;
                     break;
@@ -4084,27 +4087,72 @@ public class MainActivity extends Activity {
 
         @Override
         public boolean onTouchEvent(MotionEvent event) {
-            if (event.getActionMasked() == MotionEvent.ACTION_UP) {
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_MOVE && trackingGesture && drawerPanel != null) {
+                float dx = event.getX() - downX;
+                drawerPanel.animate().cancel();
+                float translation = openingFromGesture
+                        ? -drawerWidthPx + Math.max(0f, dx)
+                        : Math.min(0f, dx);
+                translation = Math.max(-drawerWidthPx, Math.min(0f, translation));
+                drawerPanel.setTranslationX(translation);
+                if (drawerScrim != null && drawerWidthPx > 0) {
+                    drawerScrim.setAlpha(Math.max(0f, Math.min(1f,
+                            1f + translation / drawerWidthPx)));
+                }
+                return true;
+            }
+
+            if (action == MotionEvent.ACTION_UP) {
                 float dx = event.getX() - downX;
                 float dy = event.getY() - downY;
                 boolean horizontalPull = Math.abs(dx) > getDrawerSwipeDistance()
                         && Math.abs(dx) > Math.abs(dy) * 1.15f;
-                if (horizontalPull) {
-                    if (drawerOverlay == null && dx > 0
-                            && downX <= getDrawerGestureStartWidth()) {
-                        openSalesInspirationDrawer();
-                    } else if (drawerOverlay != null && dx < 0) {
+                if (horizontalPull && drawerPanel != null) {
+                    float settleDistance = Math.max(dp(64), drawerWidthPx * 0.20f);
+                    if (openingFromGesture) {
+                        if (dx >= settleDistance) {
+                            drawerPanel.animate().cancel();
+                            drawerPanel.animate().translationX(0).setDuration(155)
+                                    .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                                    .start();
+                            if (drawerScrim != null) drawerScrim.animate().alpha(1f)
+                                    .setDuration(145).start();
+                        } else {
+                            closeSalesInspirationDrawer();
+                        }
+                    } else if (dx <= -settleDistance) {
                         closeSalesInspirationDrawer();
+                    } else {
+                        drawerPanel.animate().cancel();
+                        drawerPanel.animate().translationX(0).setDuration(155)
+                                .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                                .start();
+                        if (drawerScrim != null) drawerScrim.animate().alpha(1f)
+                                .setDuration(145).start();
                     }
                 }
                 trackingGesture = false;
+                openingFromGesture = false;
                 return true;
             }
-            if (event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+
+            if (action == MotionEvent.ACTION_CANCEL) {
+                if (drawerPanel != null) {
+                    if (openingFromGesture) {
+                        closeSalesInspirationDrawer();
+                    } else {
+                        drawerPanel.animate().cancel();
+                        drawerPanel.animate().translationX(0).setDuration(155).start();
+                        if (drawerScrim != null) drawerScrim.animate().alpha(1f)
+                                .setDuration(145).start();
+                    }
+                }
                 trackingGesture = false;
+                openingFromGesture = false;
                 return true;
             }
-            return true;
+            return trackingGesture;
         }
     }
 
