@@ -460,7 +460,8 @@ public class WasytSellerActivity extends Activity {
         heading.addView(label("TOPILGAN MAHSULOTLAR", 10, WHITE, true),
                 new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         heading.addView(label(searchResults.size() + " ta", 10, LIGHT_GREEN, true),
-                wrapWrap());
+                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT));
 
         ScrollView resultsScroll = new ScrollView(this);
         resultsScroll.setFillViewport(false);
