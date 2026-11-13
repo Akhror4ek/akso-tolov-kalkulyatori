@@ -1257,6 +1257,7 @@ public class MainActivity extends Activity {
                         WasytSalesRepository.loadCompletedSales(this, token);
                 ArrayList<WasytSellerApi.Cart> snapshot = new ArrayList<>(completed);
                 salesHandler.post(() -> {
+                    salesSyncLoading = false;
                     if (!isDailySalesDialogVisible()) return;
                     wasytCompletedSales.clear();
                     wasytCompletedSales.addAll(snapshot);
@@ -1275,8 +1276,8 @@ public class MainActivity extends Activity {
                 String message = error.getMessage() == null
                         ? "WASYT savdolarini yuklab bo‘lmadi." : error.getMessage();
                 salesHandler.post(() -> {
-                    if (!isDailySalesDialogVisible()) return;
                     salesSyncLoading = false;
+                    if (!isDailySalesDialogVisible()) return;
                     if (salesSourceStatus != null) {
                         salesSourceStatus.setText("WASYT bilan sinxronlash amalga oshmadi.");
                     }
