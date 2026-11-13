@@ -960,7 +960,8 @@ public class WasytSellerActivity extends Activity {
         summaryText.addView(mySalesMonthlyTotal, matchWrap());
         mySalesMonthMeta = label("0 ta savdo · 0 kun", 8, WHITE, false);
         mySalesMonthMeta.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        summary.addView(mySalesMonthMeta, wrapWrap());
+        summary.addView(mySalesMonthMeta, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
 
         LinearLayout weekdays = new LinearLayout(this);
         weekdays.setGravity(Gravity.CENTER_VERTICAL);
@@ -1307,7 +1308,8 @@ public class WasytSellerActivity extends Activity {
 
         TextView amount = label(formatMoney(cart.totalAmount) + " so'm", 13, LIGHT_GREEN, true);
         amount.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        top.addView(amount, wrapWrap());
+        top.addView(amount, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
 
         SimpleDateFormat time = new SimpleDateFormat("HH:mm", Locale.US);
         String meta = time.format(saleDate.getTime()) + "  ·  "
