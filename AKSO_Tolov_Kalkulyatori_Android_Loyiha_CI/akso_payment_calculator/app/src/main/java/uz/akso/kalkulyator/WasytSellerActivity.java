@@ -1017,6 +1017,7 @@ public class WasytSellerActivity extends Activity {
                         WasytSalesRepository.loadCompletedSales(this, token);
                 ArrayList<WasytSellerApi.Cart> result = new ArrayList<>(completed);
                 main.post(() -> {
+                    mySalesLoading = false;
                     if (!isMySalesDialogVisible()) return;
                     myCompletedSales.clear();
                     myCompletedSales.addAll(result);
@@ -1029,8 +1030,8 @@ public class WasytSellerActivity extends Activity {
                 String message = error.getMessage() == null
                         ? "WASYT savdolarini yuklab bo'lmadi." : error.getMessage();
                 main.post(() -> {
-                    if (!isMySalesDialogVisible()) return;
                     mySalesLoading = false;
+                    if (!isMySalesDialogVisible()) return;
                     mySalesLoadLabel.setText("Savdolar yuklanmadi. YANGILASH tugmasini bosing.");
                     refreshMySalesCalendar();
                     showError("Savdolarim", message);
