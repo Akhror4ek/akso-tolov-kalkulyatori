@@ -3904,6 +3904,7 @@ public class MainActivity extends Activity {
         long delay = hourMillis - (System.currentTimeMillis() % hourMillis) + 500L;
         drawerHourlyRefresh = () -> {
             if (drawerOverlay != null) {
+                drawerSelectedArticleIndex++;
                 refreshSalesDrawerCard();
                 scheduleDrawerHourlyRefresh();
             }
@@ -3960,8 +3961,10 @@ public class MainActivity extends Activity {
                 items = root.optJSONArray("items");
             }
             long hourIndex = System.currentTimeMillis() / TimeUnit.HOURS.toMillis(1);
-            if (drawerSelectedArticleIndex < 0 || drawerSelectedArticleIndex >= items.length()) {
+            if (drawerSelectedArticleIndex < 0) {
                 drawerSelectedArticleIndex = (int) (hourIndex % items.length());
+            } else {
+                drawerSelectedArticleIndex = drawerSelectedArticleIndex % items.length();
             }
             JSONObject item = items.getJSONObject(drawerSelectedArticleIndex);
             String id = item.optString("id", "akso_default").replaceAll("[^a-zA-Z0-9_-]", "_");
