@@ -68,6 +68,8 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -115,16 +117,23 @@ public class MainActivity extends Activity {
     };
     private Button miniCalculatorButton;
 
-    // Persistent daily sales ledger (separate from theme and sound preferences).
-    private SharedPreferences dailySalesPreferences;
+    // The main sales calendar and WASYT seller calendar share one completed-sales feed.
+    // Legacy manually entered totals are intentionally no longer read or displayed.
     private Calendar salesDisplayedMonth;
     private Calendar selectedSalesDate;
     private TextView salesMonthTitle;
     private TextView salesMonthlyTotal;
     private TextView salesDaysCount;
     private TextView salesSelectedSummary;
+    private TextView salesSourceStatus;
+    private Button salesRefreshButton;
     private LinearLayout salesCalendarGrid;
-    private EditText salesEntryInput;
+    private LinearLayout salesDayDetails;
+    private Dialog dailySalesDialog;
+    private boolean salesSyncLoading = false;
+    private final Handler salesHandler = new Handler(Looper.getMainLooper());
+    private final ExecutorService salesSyncExecutor = Executors.newSingleThreadExecutor();
+    private final List<WasytSellerApi.Cart> wasytCompletedSales = new ArrayList<>();
 
     // Offline-cached sales inspiration drawer.
     private DrawerHost drawerHost;
@@ -225,7 +234,6 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         preferences = getSharedPreferences("akso_ui_preferences", MODE_PRIVATE);
-        dailySalesPreferences = getSharedPreferences("akso_daily_sales", MODE_PRIVATE);
         quizPreferences = getSharedPreferences(QUIZ_PREFS, MODE_PRIVATE);
         walletPreferences = getSharedPreferences(WALLET_PREFS, MODE_PRIVATE);
         initializeSellerQuizDay();
@@ -920,7 +928,7 @@ public class MainActivity extends Activity {
         return card;
     }
 
-    /** Opens a monthly sales ledger. Daily totals persist after the app is closed. */
+    /** Monthly sales calendar backed only by completed sales from WASYT. */
     private void showDailySalesDialog() {
         Dialog dialog = new Dialog(this);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -938,7 +946,7 @@ public class MainActivity extends Activity {
         LinearLayout titleRow = new LinearLayout(this);
         titleRow.setOrientation(LinearLayout.HORIZONTAL);
         titleRow.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = text("AKSO  /  KUNLIK SAVDO", 11, DARK_GREEN, true);
+        TextView title = text("AKSO  /  WASYT SAVDOLARI", 11, DARK_GREEN, true);
         title.setLetterSpacing(0.07f);
         titleRow.addView(title, new LinearLayout.LayoutParams(0, dp(36), 1f));
         Button close = calculatorButton("✕", 11, false, true);
@@ -974,7 +982,7 @@ public class MainActivity extends Activity {
         summaryText.setOrientation(LinearLayout.VERTICAL);
         summary.addView(summaryText, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        summaryText.addView(text("OYLIK SAVDO JAMI", 8, MUTED, true), matchWrap());
+        summaryText.addView(text("OYLIK YAKUNLANGAN SAVDOLAR", 8, MUTED, true), matchWrap());
         salesMonthlyTotal = text("0 so‘m", 16, DARK_GREEN, true);
         summaryText.addView(salesMonthlyTotal, matchWrap());
         salesDaysCount = text("Savdo bo‘lgan kunlar: 0", 8, MUTED, false);
@@ -1000,43 +1008,44 @@ public class MainActivity extends Activity {
         salesSelectedSummary.setPadding(dp(2), dp(8), dp(2), dp(4));
         panel.addView(salesSelectedSummary, matchWrap());
 
-        salesEntryInput = amountInput("Savdo summasini kiriting");
-        LinearLayout.LayoutParams entryParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(43));
-        entryParams.topMargin = dp(3);
-        panel.addView(salesEntryInput, entryParams);
+        LinearLayout sourceRow = new LinearLayout(this);
+        sourceRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams sourceParams = matchWrap();
+        sourceParams.topMargin = dp(5);
+        panel.addView(sourceRow, sourceParams);
+        salesSourceStatus = text("WASYT savdolari yuklanmoqda…", 8, MUTED, false);
+        sourceRow.addView(salesSourceStatus,
+                new LinearLayout.LayoutParams(0, dp(36), 1f));
+        salesRefreshButton = calculatorButton("YANGILASH", 8, true, false);
+        sourceRow.addView(salesRefreshButton, new LinearLayout.LayoutParams(dp(94), dp(36)));
+        attachInteractionFeedback(salesRefreshButton);
+        salesRefreshButton.setOnClickListener(v -> {
+            if (WasytSecureStore.getValidToken(this) == null) {
+                startActivity(new android.content.Intent(this, WasytAccountActivity.class));
+            } else {
+                loadWasytSalesForMainCalendar();
+            }
+        });
 
-        LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams actionsParams = matchWrap();
-        actionsParams.topMargin = dp(7);
-        panel.addView(actions, actionsParams);
-        Button addSale = calculatorButton("SAVDOGA QO‘SHISH", 9, true, false);
-        actions.addView(addSale, new LinearLayout.LayoutParams(0, dp(42), 1f));
-        attachInteractionFeedback(addSale);
-        addSale.setOnClickListener(v -> addDailySale());
-        Button deleteDay = calculatorButton("KUNNI O‘CHIRISH", 9, false, true);
-        LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(0, dp(42), 1f);
-        deleteParams.setMargins(dp(6), 0, 0, 0);
-        actions.addView(deleteDay, deleteParams);
-        attachInteractionFeedback(deleteDay);
-        deleteDay.setOnClickListener(v -> confirmDeleteSelectedDay());
-
-        TextView tip = text("Bir kunda bir nechta savdoni ketma-ket qo‘shishingiz mumkin.",
-                8, MUTED, false);
-        tip.setPadding(dp(2), dp(7), dp(2), 0);
-        panel.addView(tip, matchWrap());
+        salesDayDetails = new LinearLayout(this);
+        salesDayDetails.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams detailsParams = matchWrap();
+        detailsParams.topMargin = dp(3);
+        panel.addView(salesDayDetails, detailsParams);
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(false);
         scroll.setVerticalScrollBarEnabled(false);
         scroll.addView(panel, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        // Blur only the main calculator while this daily-sales dialog is visible.
-        // The dialog itself remains sharp and interactive.
+
         View activityContent = findViewById(android.R.id.content);
         final boolean[] backdropBlurApplied = {false};
         dialog.setOnDismissListener(d -> {
+            if (dailySalesDialog == dialog) dailySalesDialog = null;
+            salesSourceStatus = null;
+            salesRefreshButton = null;
+            salesDayDetails = null;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && activityContent != null) {
                 try {
                     activityContent.setRenderEffect(null);
@@ -1048,10 +1057,10 @@ public class MainActivity extends Activity {
 
         dialog.setContentView(scroll);
         dialog.show();
+        dailySalesDialog = dialog;
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && activityContent != null) {
             try {
-                // A strong 22dp blur makes the underlying figures unreadable behind the glass.
                 activityContent.setRenderEffect(RenderEffect.createBlurEffect(
                         dp(22), dp(22), Shader.TileMode.CLAMP));
                 backdropBlurApplied[0] = true;
@@ -1069,7 +1078,6 @@ public class MainActivity extends Activity {
             attributes.height = Math.min(
                     getResources().getDisplayMetrics().heightPixels - dp(100), dp(760));
             attributes.gravity = Gravity.CENTER;
-            // Older Android versions without RenderEffect get a stronger dim fallback.
             attributes.dimAmount = backdropBlurApplied[0]
                     ? (darkMode ? 0.44f : 0.28f)
                     : (darkMode ? 0.62f : 0.48f);
@@ -1078,6 +1086,7 @@ public class MainActivity extends Activity {
                     | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
         }
         refreshSalesCalendar();
+        loadWasytSalesForMainCalendar();
     }
 
     private void changeSalesMonth(int amount) {
@@ -1086,19 +1095,17 @@ public class MainActivity extends Activity {
         int maxDay = salesDisplayedMonth.getActualMaximum(Calendar.DAY_OF_MONTH);
         selectedSalesDate.set(salesDisplayedMonth.get(Calendar.YEAR),
                 salesDisplayedMonth.get(Calendar.MONTH), Math.min(selectedDay, maxDay));
-        if (salesEntryInput != null) salesEntryInput.setText("");
         refreshSalesCalendar();
     }
 
     private void selectSalesDay(int day) {
         selectedSalesDate.set(salesDisplayedMonth.get(Calendar.YEAR),
                 salesDisplayedMonth.get(Calendar.MONTH), day);
-        salesEntryInput.setText("");
         refreshSalesCalendar();
     }
 
     private void refreshSalesCalendar() {
-        if (salesCalendarGrid == null) return;
+        if (salesCalendarGrid == null || salesDisplayedMonth == null) return;
         SimpleDateFormat monthFormat = new SimpleDateFormat("LLLL yyyy", new Locale("uz", "UZ"));
         String monthName = monthFormat.format(salesDisplayedMonth.getTime());
         salesMonthTitle.setText(monthName.substring(0, 1).toUpperCase(new Locale("uz", "UZ"))
@@ -1107,7 +1114,7 @@ public class MainActivity extends Activity {
 
         Calendar first = (Calendar) salesDisplayedMonth.clone();
         first.set(Calendar.DAY_OF_MONTH, 1);
-        int offset = (first.get(Calendar.DAY_OF_WEEK) + 5) % 7; // Monday-first calendar.
+        int offset = (first.get(Calendar.DAY_OF_WEEK) + 5) % 7;
         int maxDay = first.getActualMaximum(Calendar.DAY_OF_MONTH);
         for (int week = 0; week < 6; week++) {
             LinearLayout row = new LinearLayout(this);
@@ -1134,6 +1141,7 @@ public class MainActivity extends Activity {
 
         BigDecimal monthTotal = BigDecimal.ZERO;
         int activeDays = 0;
+        int monthSaleCount = 0;
         for (int day = 1; day <= maxDay; day++) {
             Calendar date = (Calendar) salesDisplayedMonth.clone();
             date.set(Calendar.DAY_OF_MONTH, day);
@@ -1142,12 +1150,17 @@ public class MainActivity extends Activity {
                 monthTotal = monthTotal.add(value);
                 activeDays++;
             }
+            monthSaleCount += WasytSalesRepository.getDailyCount(wasytCompletedSales, date);
         }
         salesMonthlyTotal.setText(formatMoney(monthTotal) + " so‘m");
-        salesDaysCount.setText("Savdo bo‘lgan kunlar: " + activeDays);
+        salesDaysCount.setText("Savdo bo‘lgan kunlar: " + activeDays
+                + "  ·  " + monthSaleCount + " ta savdo");
         SimpleDateFormat dateFormat = new SimpleDateFormat("d MMMM yyyy", new Locale("uz", "UZ"));
+        int selectedCount = WasytSalesRepository.getDailyCount(wasytCompletedSales, selectedSalesDate);
         salesSelectedSummary.setText(dateFormat.format(selectedSalesDate.getTime())
-                + "   ·   Kunlik jami: " + formatMoney(getDailySales(selectedSalesDate)) + " so‘m");
+                + "   ·   " + selectedCount + " ta savdo  ·  Kunlik jami: "
+                + formatMoney(getDailySales(selectedSalesDate)) + " so‘m");
+        renderMainCalendarDayDetails();
     }
 
     private View buildSalesDayCell(int day, BigDecimal amount, boolean selected) {
@@ -1193,20 +1206,11 @@ public class MainActivity extends Activity {
     }
 
     private boolean isSameSalesDate(Calendar first, Calendar second) {
-        return first.get(Calendar.YEAR) == second.get(Calendar.YEAR)
-                && first.get(Calendar.DAY_OF_YEAR) == second.get(Calendar.DAY_OF_YEAR);
-    }
-
-    private String salesDateKey(Calendar date) {
-        return String.format(Locale.US, "sale_%04d_%02d_%02d",
-                date.get(Calendar.YEAR), date.get(Calendar.MONTH) + 1,
-                date.get(Calendar.DAY_OF_MONTH));
+        return WasytSalesRepository.isSameDate(first, second);
     }
 
     private BigDecimal getDailySales(Calendar date) {
-        String stored = dailySalesPreferences.getString(salesDateKey(date), "0");
-        try { return new BigDecimal(stored); }
-        catch (NumberFormatException exception) { return BigDecimal.ZERO; }
+        return WasytSalesRepository.getDailyTotal(wasytCompletedSales, date);
     }
 
     private String compactSalesAmount(BigDecimal amount) {
@@ -1223,34 +1227,111 @@ public class MainActivity extends Activity {
         return formatMoney(amount);
     }
 
-    private void addDailySale() {
-        BigDecimal addition = readAmount(salesEntryInput);
-        if (addition.signum() <= 0) {
-            Toast.makeText(this, "Savdo summasini kiriting.", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        BigDecimal newTotal = getDailySales(selectedSalesDate).add(addition);
-        dailySalesPreferences.edit()
-                .putString(salesDateKey(selectedSalesDate), newTotal.toPlainString()).apply();
-        salesEntryInput.setText("");
-        refreshSalesCalendar();
-        Toast.makeText(this, "Savdo summasi saqlandi.", Toast.LENGTH_SHORT).show();
+    private boolean isDailySalesDialogVisible() {
+        return !isFinishing() && !isDestroyed()
+                && dailySalesDialog != null && dailySalesDialog.isShowing();
     }
 
-    private void confirmDeleteSelectedDay() {
-        if (getDailySales(selectedSalesDate).signum() <= 0) {
-            Toast.makeText(this, "Bu kun uchun savdo kiritilmagan.", Toast.LENGTH_SHORT).show();
+    private void loadWasytSalesForMainCalendar() {
+        if (!isDailySalesDialogVisible()) return;
+        String token = WasytSecureStore.getValidToken(this);
+        if (token == null || token.trim().isEmpty()) {
+            if (salesSourceStatus != null) {
+                salesSourceStatus.setText("WASYT akkaunti ulanmagan. Avval akkauntni ulang.");
+            }
+            if (salesRefreshButton != null) salesRefreshButton.setText("AKKAUNTNI ULASH");
             return;
         }
-        new android.app.AlertDialog.Builder(this)
-                .setTitle("Kunlik savdoni o‘chirish")
-                .setMessage("Tanlangan kundagi jami savdo summasini o‘chirasizmi?")
-                .setNegativeButton("Bekor qilish", (d, w) -> d.dismiss())
-                .setPositiveButton("O‘chirish", (d, w) -> {
-                    dailySalesPreferences.edit().remove(salesDateKey(selectedSalesDate)).apply();
+        if (salesSyncLoading) return;
+
+        salesSyncLoading = true;
+        if (salesSourceStatus != null) salesSourceStatus.setText("WASYT savdolari yuklanmoqda…");
+        if (salesRefreshButton != null) {
+            salesRefreshButton.setText("YUKLANMOQDA");
+            salesRefreshButton.setEnabled(false);
+        }
+
+        salesSyncExecutor.execute(() -> {
+            try {
+                List<WasytSellerApi.Cart> completed =
+                        WasytSalesRepository.loadCompletedSales(this, token);
+                ArrayList<WasytSellerApi.Cart> snapshot = new ArrayList<>(completed);
+                salesHandler.post(() -> {
+                    if (!isDailySalesDialogVisible()) return;
+                    wasytCompletedSales.clear();
+                    wasytCompletedSales.addAll(snapshot);
+                    salesSyncLoading = false;
+                    if (salesSourceStatus != null) {
+                        salesSourceStatus.setText("WASYT bilan sinxronlandi · "
+                                + snapshot.size() + " ta yakunlangan savdo");
+                    }
+                    if (salesRefreshButton != null) {
+                        salesRefreshButton.setText("YANGILASH");
+                        salesRefreshButton.setEnabled(true);
+                    }
                     refreshSalesCalendar();
-                    Toast.makeText(this, "Kunlik savdo o‘chirildi.", Toast.LENGTH_SHORT).show();
-                }).show();
+                });
+            } catch (Exception error) {
+                String message = error.getMessage() == null
+                        ? "WASYT savdolarini yuklab bo‘lmadi." : error.getMessage();
+                salesHandler.post(() -> {
+                    if (!isDailySalesDialogVisible()) return;
+                    salesSyncLoading = false;
+                    if (salesSourceStatus != null) {
+                        salesSourceStatus.setText("WASYT bilan sinxronlash amalga oshmadi.");
+                    }
+                    if (salesRefreshButton != null) {
+                        salesRefreshButton.setText("QAYTA URINISH");
+                        salesRefreshButton.setEnabled(true);
+                    }
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                });
+            }
+        });
+    }
+
+    private void renderMainCalendarDayDetails() {
+        if (salesDayDetails == null || selectedSalesDate == null) return;
+        salesDayDetails.removeAllViews();
+        int count = 0;
+        for (WasytSellerApi.Cart sale : wasytCompletedSales) {
+            Calendar saleDate = WasytSalesRepository.getSaleDate(sale);
+            if (!WasytSalesRepository.isSameDate(saleDate, selectedSalesDate)) continue;
+
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(8), dp(7), dp(8), dp(7));
+            row.setBackground(glassTintBackground());
+            LinearLayout.LayoutParams rowParams = matchWrap();
+            rowParams.topMargin = dp(4);
+            salesDayDetails.addView(row, rowParams);
+
+            LinearLayout detail = new LinearLayout(this);
+            detail.setOrientation(LinearLayout.VERTICAL);
+            row.addView(detail, new LinearLayout.LayoutParams(0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            String saleCode = sale.saleId > 0 ? String.valueOf(sale.saleId) : sale.code;
+            detail.addView(text("SAVDO  #" + saleCode, 9, TEXT, true), matchWrap());
+            detail.addView(text(sale.clientName.isEmpty()
+                    ? "Mijoz tanlanmagan" : sale.clientName, 8, MUTED, false), matchWrap());
+            SimpleDateFormat time = new SimpleDateFormat("HH:mm", Locale.US);
+            String meta = time.format(saleDate.getTime()) + "  ·  "
+                    + sale.productsCount + " ta mahsulot";
+            if (sale.saleId > 0) meta += "  ·  Kassa #" + sale.saleId;
+            detail.addView(text(meta, 7, MUTED, false), matchWrap());
+
+            TextView amount = text(formatMoney(BigDecimal.valueOf(sale.totalAmount)) + " so‘m",
+                    10, DARK_GREEN, true);
+            amount.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+            row.addView(amount, wrapWrap());
+            count++;
+        }
+        if (count == 0) {
+            TextView empty = text("Tanlangan kunda yakunlangan WASYT savdosi yo‘q.",
+                    8, MUTED, false);
+            empty.setPadding(dp(3), dp(8), dp(3), dp(3));
+            salesDayDetails.addView(empty, matchWrap());
+        }
     }
 
     private BigDecimal discountedPrice(BigDecimal originalPrice, int discountRate) {
@@ -3692,6 +3773,7 @@ public class MainActivity extends Activity {
         if (drawerOverlay == null) return;
         if (drawerHourlyRefresh != null) drawerHandler.removeCallbacks(drawerHourlyRefresh);
         if (drawerCachePoll != null) drawerHandler.removeCallbacks(drawerCachePoll);
+        salesSyncExecutor.shutdownNow();
 
         final FrameLayout oldOverlay = drawerOverlay;
         final View oldPanel = drawerPanel;
@@ -3819,6 +3901,16 @@ public class MainActivity extends Activity {
             return;
         }
         super.onBackPressed();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (isDailySalesDialogVisible() && WasytSecureStore.getValidToken(this) != null
+                && salesSourceStatus != null
+                && salesSourceStatus.getText().toString().contains("akkaunti ulanmagan")) {
+            loadWasytSalesForMainCalendar();
+        }
     }
 
     @Override
