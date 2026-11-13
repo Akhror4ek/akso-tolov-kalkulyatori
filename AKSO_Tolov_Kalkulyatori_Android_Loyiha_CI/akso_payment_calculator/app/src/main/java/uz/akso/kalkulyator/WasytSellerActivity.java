@@ -447,33 +447,78 @@ public class WasytSellerActivity extends Activity {
     private void renderSearchResults() {
         resultsPanel.removeAllViews();
         if (searchResults.isEmpty()) return;
+
+        // Keep the catalog results compact so the cart, client and discount
+        // sections remain close by even when a search returns many products.
         LinearLayout panel = card();
         resultsPanel.addView(panel, matchWrap());
-        for (WasytBarcodeScanner.ProductInfo product : searchResults) {
+
+        LinearLayout heading = new LinearLayout(this);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        heading.setPadding(dp(2), 0, dp(2), dp(7));
+        panel.addView(heading, matchWrap());
+        heading.addView(label("TOPILGAN MAHSULOTLAR", 10, WHITE, true),
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        heading.addView(label(searchResults.size() + " ta", 10, LIGHT_GREEN, true),
+                wrapWrap());
+
+        ScrollView resultsScroll = new ScrollView(this);
+        resultsScroll.setFillViewport(false);
+        resultsScroll.setVerticalScrollBarEnabled(true);
+        resultsScroll.setSmoothScrollingEnabled(true);
+        resultsScroll.setNestedScrollingEnabled(true);
+        resultsScroll.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
+        resultsScroll.setClipToPadding(false);
+
+        // Show about 3 compact rows at once. Extra matches scroll inside this
+        // viewport instead of pushing SAVAT / MIJOZ / CHEGIRMA down the page.
+        int viewportHeight = Math.min(dp(232), dp(Math.max(1, searchResults.size()) * 66));
+        panel.addView(resultsScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, viewportHeight));
+
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        resultsScroll.addView(list, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        for (int i = 0; i < searchResults.size(); i++) {
+            WasytBarcodeScanner.ProductInfo product = searchResults.get(i);
             LinearLayout row = new LinearLayout(this);
             row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(0, dp(5), 0, dp(5));
-            panel.addView(row, matchWrap());
+            row.setMinimumHeight(dp(56));
+            row.setPadding(0, dp(4), 0, dp(4));
+            list.addView(row, matchWrap());
 
             LinearLayout details = new LinearLayout(this);
             details.setOrientation(LinearLayout.VERTICAL);
             row.addView(details, new LinearLayout.LayoutParams(0,
                     ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-            details.addView(label(product.name, 12, WHITE, true), matchWrap());
+
+            TextView name = label(product.name, 11, WHITE, true);
+            name.setMaxLines(2);
+            name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            details.addView(name, matchWrap());
+
             String info = (product.barcode.isEmpty() ? "Shtrix-kod yo'q" : product.barcode)
                     + (product.stockQuantity == null || product.stockQuantity.isEmpty()
                     ? "" : "  ·  Qoldiq: " + product.stockQuantity);
-            details.addView(label(info, 9, MUTED, false), matchWrap());
-            details.addView(label(formatMoney(product.priceAmount) + " so'm", 12,
+            TextView metadata = label(info, 9, MUTED, false);
+            metadata.setMaxLines(1);
+            metadata.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            details.addView(metadata, matchWrap());
+            details.addView(label(formatMoney(product.priceAmount) + " so'm", 11,
                     LIGHT_GREEN, true), matchWrap());
 
             TextView add = button("+", true);
-            row.addView(add, new LinearLayout.LayoutParams(dp(42), dp(42)));
+            row.addView(add, new LinearLayout.LayoutParams(dp(38), dp(38)));
             add.setOnClickListener(v -> addToCart(product));
-            View divider = new View(this);
-            divider.setBackgroundColor(0x33FFFFFF);
-            panel.addView(divider, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
+
+            if (i < searchResults.size() - 1) {
+                View divider = new View(this);
+                divider.setBackgroundColor(0x33FFFFFF);
+                list.addView(divider, new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
+            }
         }
     }
 
