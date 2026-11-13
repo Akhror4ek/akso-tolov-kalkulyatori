@@ -146,7 +146,10 @@ public class MainActivity extends Activity {
     private TextView drawerArticleTitle;
     private TextView drawerArticleBody;
     private TextView drawerUpdateLabel;
+    private Button drawerNextArticleButton;
+    private int drawerSelectedArticleIndex = -1;
     private int drawerWidthPx;
+    private Dialog sellerQuizDialog;
     private final Handler drawerHandler = new Handler(Looper.getMainLooper());
     private Runnable drawerHourlyRefresh;
     private Runnable drawerCachePoll;
@@ -187,7 +190,7 @@ public class MainActivity extends Activity {
     private static final String QUIZ_IDS_KEY = "quiz_daily_question_ids";
     private static final String QUIZ_VERSION_KEY = "quiz_bank_version";
     private static final int DAILY_QUIZ_SIZE = 100;
-    private static final int QUIZ_BANK_VERSION = 3;
+    private static final int QUIZ_BANK_VERSION = 4;
     private SharedPreferences quizPreferences;
     private TextView coinBalanceLabel;
     private TextView quizProgressLabel;
@@ -2266,10 +2269,10 @@ public class MainActivity extends Activity {
     private static final String SALES_FEED_KEY = "feed_json";
     private static final String SALES_FEED_UPDATED_KEY = "feed_updated";
     private static final String SALES_FEED_URL =
-            "https://raw.githubusercontent.com/Akhror4ek/akso-tolov-kalkulyatori/main/akso_sales_feed.json";
+            "https://raw.githubusercontent.com/Akhror4ek/akso-tolov-kalkulyatori/feature/wasyt-seller-workflow/akso_sales_feed.json";
 
     private static String defaultSalesFeedJson() {
-        return "{\n  \"version\": 1,\n  \"source\": \"AKSO\",\n  \"items\": [\n    {\n      \"id\": \"customer_first\",\n      \"title\": \"Birinchi taassurot ishonch uyg‘otadi\",\n      \"body\": \"Mijoz do‘konga kirganda samimiy salom bering va unga e’tibor qarating. Darhol mahsulotni tavsiya qilishga shoshilmang. Avval nima izlayotganini so‘rang, ehtiyojini tinglang. O‘zini hurmat qilingan mijoz deb his qilgan odam xarid haqida xotirjamroq qaror qiladi.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"value_not_price\",\n      \"title\": \"Faqat narxni emas, foydani tushuntiring\",\n      \"body\": \"Mahsulotning narxini aytish bilan cheklanib qolmang. Uning xaridorga qanday qulaylik berishini, vaqtini yoki xarajatini qanday tejashini sodda misol bilan ko‘rsating. Mijoz mahsulot qiymatini tushunsa, narxni baholashi ham osonlashadi.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"listen_customer\",\n      \"title\": \"Mijozni tinglash — yaxshi savdoning asosi\",\n      \"body\": \"Ochiq savollar bering: “Siz uchun qaysi xususiyat muhim?”, “Qanday foydalanmoqchisiz?”. Javobni bo‘lmasdan tinglang. Shunda keraksiz mahsulotlarni ko‘rsatmay, mijozga mos variantni tezroq topasiz.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1556761175-b413da4baf72?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"alternatives\",\n      \"title\": \"Har doim uchta variant ko‘rsating\",\n      \"body\": \"Mijozga imkon qadar uch xil taklif bering: tejamkor, o‘rtacha va imkoniyati kengroq variant. Farqlarini qisqa tushuntiring. Bu xaridorga tanlash imkonini beradi va suhbatni faqat “qimmat” yoki “arzon” degan savol atrofida aylantirmaydi.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"payment_convenience\",\n      \"title\": \"To‘lov qulayligini aniq tushuntiring\",\n      \"body\": \"Bo‘lib to‘lashni taklif qilganda boshlang‘ich to‘lovni, muddatni va har oy to‘lanadigan summani alohida ayting. Jami to‘lovni ham yashirmang. Raqamlar tushunarli bo‘lsa, mijoz o‘z budjetiga mos qaror qabul qiladi.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"after_sale\",\n      \"title\": \"Savdo tugagach ham mijoz bilan aloqa uzilmasin\",\n      \"body\": \"Xariddan keyin mahsulotdan foydalanish bo‘yicha qisqa tavsiya bering va murojaat uchun aloqa yo‘lini eslatib qo‘ying. Muammo bo‘lsa, yordam berishga tayyor ekaningizni bildiring. Yaxshi xizmat takroriy xarid va tavsiyalar uchun mustahkam asos yaratadi.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"clear_display\",\n      \"title\": \"Mahsulot ma’lumotlarini ko‘rinadigan qiling\",\n      \"body\": \"Narx, asosiy xususiyat va to‘lov shartlarini aniq ko‘rsating. Noaniq yoki chalkash yozuvlar mijozda shubha uyg‘otadi. Tartibli vitrinalar va tushunarli narx yorliqlari sotuvchining vaqtini ham tejaydi.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"trust\",\n      \"title\": \"Va’dani aniq bering, ortiqcha va’da bermang\",\n      \"body\": \"Mahsulot mavjudligi, yetkazib berish muddati, kafolat va to‘lov shartlari haqida faqat tekshirilgan ma’lumotni ayting. Bajarib bo‘lmaydigan va’da qisqa muddatda savdo olib kelishi mumkin, lekin uzoq muddatli ishonchga zarar yetkazadi.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1556761175-b413da4baf72?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    }\n  ]\n}";
+        return "{\n  \"version\": 2,\n  \"source\": \"AKSO\",\n  \"items\": [\n    {\n      \"id\": \"first_impression\",\n      \"title\": \"Birinchi taassurot ishonch uyg‘otadi\",\n      \"body\": \"Mijoz kirishi bilan samimiy salom bering, lekin darhol mahsulotni maqtashga o‘tmang. Unga erkin ko‘zdan kechirish uchun imkon bering. So‘ng nimani izlayotgani, kim foydalanishi va qaysi muddatda kerakligini ochiq savollar bilan aniqlang. Dastlabki suhbatning maqsadi sotish emas, ehtiyojni to‘g‘ri tushunishdir.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"listen_first\",\n      \"title\": \"Avval tinglang, keyin tavsiya bering\",\n      \"body\": \"“Siz uchun eng muhimi nima?” yoki “Hozirgi mahsulotingizda qaysi jihat noqulay?” kabi savollar bering. Javobni bo‘lmasdan tinglang va eshitganingizni qisqacha qaytaring. Shu yo‘l bilan mijozga mos bo‘lmagan qimmat yoki ortiqcha funksiyali mahsulotni tavsiya qilish ehtimoli kamayadi.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1556761175-b413da4baf72?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"three_options\",\n      \"title\": \"Uch xil variantni to‘g‘ri taqqoslang\",\n      \"body\": \"Mijozga tejamkor, muvozanatli va imkoniyati kengroq variantni ko‘rsating. Har birining 2–3 muhim farqini bir xil mezon bo‘yicha tushuntiring: sig‘im, energiya sarfi, kafolat yoki foydalanish qulayligi. Eng qimmat modelni avtomatik ravishda eng yaxshi deb ko‘rsatmang.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"value_not_price\",\n      \"title\": \"Faqat narxni emas, kundalik foydani tushuntiring\",\n      \"body\": \"Mahsulotning narxini aytish bilan cheklanib qolmang. U mijozning vaqtini tejaydimi, ishni yengillashtiradimi yoki oilaning ehtiyojiga qay darajada mos keladimi — shuni aniq misol bilan ko‘rsating. Foydani isbotlanmagan va’dalar bilan emas, mahsulotning real xususiyatlari bilan bog‘lang.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"budget_questions\",\n      \"title\": \"Budjetni noqulaylik tug‘dirmasdan aniqlang\",\n      \"body\": \"“Qancha pulingiz bor?” deb keskin so‘rash o‘rniga, “Qaysi narx oralig‘idagi variantlarni ko‘rib chiqamiz?” deb so‘rang. Naqd xarid va bo‘lib to‘lash imkoniyatini alohida tushuntiring. Mijoz aytgan chegarani hurmat qiling va unga mos variantlarni birinchi navbatda ko‘rsating.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"washing_capacity\",\n      \"title\": \"Kir yuvish mashinasida sig‘imni ehtiyojga moslang\",\n      \"body\": \"Kilogramm ko‘rsatkichi bir yuvish siklida quruq kirning tavsiya etilgan yuklamasini bildiradi. Oila a’zolari soni, ko‘rpa-to‘shak yuvish odati va joy o‘lchamini so‘rang. Faqat katta sig‘imni maqtamang: ortiqcha katta model xarajat va joy talabini oshirishi mumkin.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"refrigerator_layout\",\n      \"title\": \"Muzlatkichda faqat litrga qarab tanlamang\",\n      \"body\": \"Umumiy hajm bilan birga muzlatkich va sovutkich bo‘limlari nisbatini, javonlar joylashuvini, eshik ochilish yo‘nalishini va oshxonadagi o‘lchamni tekshiring. No Frost, inverter yoki energiya sinfi kabi xususiyatlarni mijoz foydalanish odatiga bog‘lab izohlang.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"vacuum_filter\",\n      \"title\": \"Changyutgichda quvvat va filtrlashni farqlang\",\n      \"body\": \"Elektr quvvati, so‘rish samaradorligi va filtr turi bir xil tushuncha emas. Mijozda gilam, qattiq pol yoki uy hayvoni bor-yo‘qligini aniqlang. Chang idishi hajmi, filtrni tozalash va sarflanadigan qismlar narxini ham ayting — bu keyingi foydalanish xarajatlarini tushunishga yordam beradi.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1552664730-d307ca884978?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"air_conditioner_area\",\n      \"title\": \"Konditsionerni xona maydoniga mos tanlang\",\n      \"body\": \"Xonaning kvadrati bilan birga shift balandligi, quyosh tushishi, deraza maydoni va xonadagi odamlar sonini ham so‘rang. Quvvatni taxmin bilan belgilamang; kerak bo‘lsa mutaxassisga hisoblatishni taklif qiling. O‘rnatish joyi, drenaj va montaj xarajatlarini oldindan aniqlashtiring.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"tv_distance\",\n      \"title\": \"Televizor tanlashda ko‘rish masofasini inobatga oling\",\n      \"body\": \"Ekran diagonali, xona kattaligi va tomosha masofasini birga ko‘rib chiqing. 4K, HDR, yangilanish chastotasi va Smart TV imkoniyatlarini mijoz haqiqatda ishlatadigan kontent bilan bog‘lab tushuntiring. Faqat texnik atamalarni sanash o‘rniga amaliy farqni ko‘rsating.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1551836022-d5d88e9218df?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"furniture_measure\",\n      \"title\": \"Mebel xaridida o‘lchovni ikki marta tekshiring\",\n      \"body\": \"Xonaning eni, bo‘yi, eshik va yo‘laklardan o‘tish imkoniyatini oldindan aniqlang. Mebelning tashqi o‘lchamlarini, modul joylashuvini va eshik ochilishiga xalaqit bermasligini tekshiring. Suratga qarabgina “albatta sig‘adi” deb va’da bermang.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"carpet_material\",\n      \"title\": \"Gilamni tanlashda material va parvarishni tushuntiring\",\n      \"body\": \"Gilamning tuk balandligi, zichligi, materiali va tag qismi uning ko‘rinishi hamda parvarishiga ta’sir qiladi. Uyda bolalar yoki uy hayvonlari bo‘lsa, tozalash qulayligini ham muhokama qiling. Rangni do‘kon yoritilishi va uy sharoitida farq qilishi mumkinligini eslatib qo‘ying.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1542744173-8e7e53415bb0?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"installment_clear\",\n      \"title\": \"Bo‘lib to‘lash shartlarini to‘liq ochiqlang\",\n      \"body\": \"Boshlang‘ich to‘lov, muddat, ustama foizi, oylik to‘lov va yakuniy summani birgalikda ko‘rsating. Mijoz faqat kichik oylik raqamni ko‘rib qaror qilmasin. Hisob-kitobni kalkulyatorda qayta tekshiring va shartnomadagi ma’lumot bilan mosligini tasdiqlang.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1553877522-43269d4ea984?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"monthly_vs_total\",\n      \"title\": \"Oylik to‘lov va jami xarajatni aralashtirmang\",\n      \"body\": \"Oylik to‘lovning kichikligi mahsulot arzon degani emas. Mijoz bilan naqd narx, boshlang‘ich to‘lov, bo‘lib to‘lashdagi jami summa va muddatni yonma-yon solishtiring. Har qanday komissiya yoki qo‘shimcha xarajat mavjud bo‘lsa, uni yashirmasdan ayting.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1486312338219-ce68d2c6f44d?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"discount_honesty\",\n      \"title\": \"Chegirmani faqat tasdiqlangan shartda taklif qiling\",\n      \"body\": \"Chegirma berish vakolati, amal qilish muddati va qaysi mahsulotlarga tegishli ekanini tekshiring. “Faqat hozir” kabi sun’iy shoshiltirishdan foydalanmang. Aksiya sharti mijozga tushunarli bo‘lishi va yakuniy narxda to‘g‘ri aks etishi kerak.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"stock_check\",\n      \"title\": \"Qoldiqni va’da berishdan oldin tekshiring\",\n      \"body\": \"Rafdagi mahsulot, ombor qoldig‘i va tizimdagi son har doim bir xil bo‘lmasligi mumkin. Aynan model, rang va komplektatsiyani tekshiring. Yetarli qoldiq bo‘lmasa, mas’ul xodim bilan aniqlashtirib, mijozga real muddat va muqobil variantni ayting.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"delivery_promise\",\n      \"title\": \"Yetkazib berish vaqtini aniq kelishib oling\",\n      \"body\": \"Yetkazish hududi, sana, vaqt oralig‘i, ko‘tarib chiqish va o‘rnatish xizmatlari alohida aniqlashtirilishi kerak. “Bugun yetadi” deb tasdiqsiz va’da bermang. Mijozga kelishilgan shartlarni buyurtmada qayd eting va aloqa raqamini tekshiring.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1504384308090-c894fdcc538d?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"warranty_documents\",\n      \"title\": \"Kafolat haqida hujjatga tayangan holda gapiring\",\n      \"body\": \"Kafolat muddati va qamrovi mahsulot turi hamda ishlab chiqaruvchi shartlariga bog‘liq. Modelni aniqlab, rasmiy kafolat taloni yoki ishlab chiqaruvchi ma’lumotini tekshiring. Kafolat barcha nosozliklarni qamrab oladi deb umumiy va’da bermang.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1552581234-26160f608093?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"demo_safely\",\n      \"title\": \"Mahsulotni xavfsiz va maqsadli namoyish qiling\",\n      \"body\": \"Avval mijoz qaysi funksiyani ko‘rmoqchi ekanini so‘rang. Qurilmani yo‘riqnomaga muvofiq, xavfsizlik qoidalarini buzmasdan namoyish qiling. Har bir tugmani sanab chiqish o‘rniga, mijozga muhim bo‘lgan 2–3 funksiyaning amaliy foydasini ko‘rsating.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1560472354-b33ff0c44a43?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"handle_objection\",\n      \"title\": \"E’tirozni bahsga aylantirmang\",\n      \"body\": \"Mijozning “qimmat”, “o‘ylab ko‘raman” yoki “boshqa joyda arzon” degan gapiga darhol qarshi chiqmang. E’tirozning sababini aniqlashtiring: budjetmi, ishonchmi yoki mahsulot farqimi? Shundan keyingina dalil, muqobil model yoki qayta hisob-kitob taklif qiling.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1507679799987-c73779587ccf?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"complaint_first\",\n      \"title\": \"Shikoyatni avval xolis qayd eting\",\n      \"body\": \"Mijozning gapini bo‘lmasdan tinglang, mahsulot modeli, xarid sanasi, hujjatlar va muammo qachon boshlanganini aniqlang. Tekshiruvdan oldin aybni mijozga yoki ishlab chiqaruvchiga yuklamang. Keyingi qadam, mas’ul xodim va taxminiy aloqa muddatini tushuntiring.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1524758631624-e2822e304c36?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"compatible_accessories\",\n      \"title\": \"Aksessuar mosligini tekshirib taklif qiling\",\n      \"body\": \"Qo‘shimcha mahsulot asosiy qurilmaga texnik va o‘lcham jihatidan mos kelishi kerak. Foydasi, narxi va zarurligini tushuntiring; mijoz rad etsa, bosim qilmang. Mosligi tekshirilmagan aksessuarni faqat qo‘shimcha savdo uchun tavsiya qilish ishonchni pasaytiradi.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"product_care\",\n      \"title\": \"Xariddan keyingi parvarish bo‘yicha qisqa yo‘l-yo‘riq bering\",\n      \"body\": \"Mijozga mahsulotni ilk ishga tushirish, tozalash va xavfsiz foydalanish bo‘yicha ishlab chiqaruvchi tavsiyalarini eslating. Elektr jihozlari uchun kuchlanish, shamollatish yoki suv ulanishi kabi talablarni faqat yo‘riqnomaga tayangan holda tushuntiring.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"price_label\",\n      \"title\": \"Narx yorlig‘i tushunarli va to‘liq bo‘lsin\",\n      \"body\": \"Yorliqda mahsulot nomi yoki modeli, naqd narx va bo‘lib to‘lash shartlari chalkashmasdan ko‘rsatilishi kerak. Oylik to‘lov yonida muddat va jami summani ham aniq yozing. Eskirgan yorliqni vaqtida almashtiring — noto‘g‘ri narx mijoz ishonchiga zarar yetkazadi.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1494438639946-1ebd1d20bf85?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"customer_privacy\",\n      \"title\": \"Mijoz ma’lumotlarini ehtiyot qiling\",\n      \"body\": \"Telefon raqami, manzil, shaxsiy hujjat yoki to‘lov ma’lumotlarini faqat zarur ish jarayonida va vakolatli tizimda ishlating. Mijoz roziligisiz uning ma’lumotlarini begonalarga yubormang. Ekran yoki hujjatlarni boshqa mijoz ko‘rmaydigan tarzda tuting.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"no_pressure\",\n      \"title\": \"Mijozga qaror qilish uchun vaqt bering\",\n      \"body\": \"Xaridni tezlashtirish uchun asossiz tanqislik yoki yolg‘on aksiya haqida gapirmang. Mijoz ikkilanayotgan bo‘lsa, qaysi savol ochiq qolganini aniqlang va kerakli ma’lumotni bering. Qaror mijozning ehtiyoji va moliyaviy imkoniyatiga mos bo‘lishi kerak.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1503602642458-232111445657?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"closing_check\",\n      \"title\": \"Buyurtmani yakunlashdan oldin barcha bandlarni tekshiring\",\n      \"body\": \"Model, rang, soni, narx, chegirma, boshlang‘ich to‘lov, muddat, oylik va jami summa, yetkazish manzili hamda kafolatni mijoz bilan qayta tasdiqlang. Ayniqsa, og‘zaki kelishuv bilan tizimga kiritilgan ma’lumotlar bir-biriga mosligini tekshiring.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"follow_up\",\n      \"title\": \"Savdodan keyingi aloqa takroriy xaridga zamin yaratadi\",\n      \"body\": \"Mahsulot yetkazilgach, mijozdan hammasi joyida ekanini so‘rash uchun qulay aloqa vaqtini kelishib oling. Muammo bo‘lsa, murojaat yo‘lini ko‘rsating. Keraksiz reklama xabarlarini yubormang; keyingi takliflar mijozning roziligi va haqiqiy ehtiyojiga mos bo‘lsin.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1493663284031-b7e3aefcae8e?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"team_handover\",\n      \"title\": \"Mijozni boshqa xodimga topshirganda kontekstni yo‘qotmang\",\n      \"body\": \"Masala boshqa mutaxassisga o‘tsa, mijozning ehtiyoji, ko‘rilgan modellar, kelishilgan narx va ochiq savollarni qisqacha yetkazing. Mijozdan barcha ma’lumotni qayta-qayta so‘rash ishonchni pasaytiradi. Topshirishdan oldin kim javob berishini va qachon bog‘lanishini aniqlang.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1519710164239-da123dc03ef4?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"repeat_customer\",\n      \"title\": \"Doimiy mijozga avvalgi tajribasini inobatga olib xizmat qiling\",\n      \"body\": \"Mijoz oldin xarid qilgan mahsulot yoki avvalgi murojaatini eslasa, tegishli ma’lumotni ruxsat etilgan tizimdan tekshiring. Uning odatlari asosida foydali variant taklif qiling, lekin shaxsiy ma’lumotlardan noo‘rin foydalanmang. E’tiborli xizmat sodiqlikni kuchaytiradi.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    },\n    {\n      \"id\": \"kitchen_fit\",\n      \"title\": \"Oshxona texnikasida ulanish shartlarini oldindan aniqlang\",\n      \"body\": \"Gaz, suv, elektr quvvati, ventilyatsiya va o‘rnatish o‘lchamlarini tegishli mahsulot yo‘riqnomasi asosida tekshiring. Kerakli kommunikatsiya tayyor bo‘lmasa, qurilmani ulashga va’da bermang. O‘rnatish mutaxassis talab qilsa, buni xariddan oldin ayting.\",\n      \"imageUrl\": \"https://images.unsplash.com/photo-1556911220-e15b29be8c8f?auto=format&fit=crop&fm=jpg&w=1000&q=76\",\n      \"credit\": \"Unsplash\"\n    }\n  ]\n}";
     }
 
     /** Schedules one initial sync plus a periodic network-constrained background refresh. */
@@ -2394,14 +2397,18 @@ public class MainActivity extends Activity {
         drawerUpdateLabel.setPadding(dp(2), dp(11), dp(2), 0);
         content.addView(drawerUpdateLabel, matchWrap());
 
-        TextView offlineNote = text(
-                "Internet bo‘lmasa, telefon xotirasidagi oxirgi rasm va maqola ko‘rsatiladi.",
-                8, MUTED, false);
-        offlineNote.setPadding(dp(2), dp(8), dp(2), dp(8));
-        content.addView(offlineNote, matchWrap());
+        drawerNextArticleButton = calculatorButton("KEYINGI MASLAHAT  →", 10, true, false);
+        LinearLayout.LayoutParams nextArticleParams = matchWrap();
+        nextArticleParams.topMargin = dp(12);
+        content.addView(drawerNextArticleButton, nextArticleParams);
+        drawerNextArticleButton.setOnClickListener(v -> {
+            drawerSelectedArticleIndex++;
+            refreshSalesDrawerCard();
+            contentScroll.smoothScrollTo(0, imageFrame.getTop());
+        });
 
-        // Wallet is now opened from its own home-screen icon, not embedded in this drawer.
-        addSellerQuizSection(content);
+        // Seller knowledge quiz is opened as a separate section from this menu.
+        addSellerQuizLaunchButton(content);
 
         drawerOverlay.addView(panel, new FrameLayout.LayoutParams(
                 drawerWidthPx, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.START | Gravity.TOP));
@@ -2410,7 +2417,7 @@ public class MainActivity extends Activity {
 
         panel.setTranslationX(-drawerWidthPx);
         drawerScrim.animate().alpha(1f).setDuration(220).start();
-        panel.animate().translationX(0).setDuration(260)
+        panel.animate().translationX(0).setDuration(190)
                 .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && mainScrollView != null) {
@@ -3454,46 +3461,46 @@ public class MainActivity extends Activity {
         };
 
         String[][] options = {
-                {"Foydalanish sharoiti, kerakli xususiyatlar va budjetni aniqlashtirish.",
-                        "Avval eng qimmat modelni tavsiya qilish.",
-                        "Mijozdan so‘ramasdan o‘zingizga yoqqanini tanlash.",
-                        "Faqat chegirma bor mahsulotni ko‘rsatish."},
-                {"E'tiroz sababini tinglab, foydani dalil bilan tushuntirish va mosroq variant ko‘rsatish.",
-                        "Mijoz bilan narx ustida bahslashish.",
-                        "Boshqa do‘konni yomonlash.",
-                        "Asossiz chegirma va’da qilish."},
-                {"Muhim xususiyatlar, sifat, kafolat, sarf va narxni xolis taqqoslash.",
-                        "Faqat qimmatroq modelni maqtash.",
-                        "Farqlarni yashirish.",
-                        "Mijoz o‘rniga hech qanday izohsiz tanlash."},
-                {"Ombor hisobini yoki mas'ul xodimni tekshirib, keyin aniq javob berish.",
-                        "Tekshirmasdan bor deb va'da berish.",
-                        "Taxminiy muddat aytish.",
-                        "Mavjud emas deb yuborish."},
-                {"Boshlang‘ich to‘lov, muddat, oylik to‘lov, ustama va jami summani ochiq ko‘rsatish.",
-                        "Faqat kichik oylik to‘lovni aytish.",
-                        "Jami summani yashirish.",
-                        "Shartlarni og‘zaki noaniq tushuntirish."},
-                {"Rasmiy kafolat hujjati va tasdiqlangan shartlarni tekshirib, aniq ma'lumot berish.",
-                        "Taxminiy muddatni aytish.",
-                        "Barcha mahsulotlarda kafolat bir xil deyish.",
-                        "Mijozga internetdan o‘zi izlashni aytish."},
-                {"Mijozga kerakli funksiyani xavfsiz tarzda ko‘rsatib, o‘zi sinab ko‘rishiga imkon berish.",
-                        "Faqat reklama matnini o‘qib berish.",
-                        "Muhim funksiyalarni ko‘rsatmaslik.",
-                        "Mahsulotni ehtiyotsiz ishlatib ko‘rsatish."},
-                {"Mijozni xotirjam tinglab, holat va hujjatlarni aniqlash, belgilangan tartibda yordam berish.",
-                        "Mijozni ayblash.",
-                        "Muammoni tekshirmasdan rad etish.",
-                        "Boshqa xodimga izohsiz yuborish."},
-                {"Faqat haqiqiy foyda beradigan mos aksessuarni ixtiyoriy taklif qilish.",
-                        "Keraksiz mahsulotni majburlab qo‘shish.",
-                        "Aksessuar narxini aytmaslik.",
-                        "Asosiy mahsulotni sotmasdan turib qo‘shimcha buyumni rasmiylashtirish."},
-                {"Model, rang, soni, narx, to‘lov, yetkazish va kafolatni qayta tasdiqlash.",
-                        "Mijozga tekshirtirmasdan buyurtmani yopish.",
-                        "Faqat to‘lovni qabul qilishga shoshilish.",
-                        "Yetkazish manzilini so‘ramaslik."}
+                {"Foydalanish hajmi, joy o‘lchami, zarur funksiyalar va budjetni aniqlab, mos modellarni bir xil mezonlarda solishtirish.",
+                        "Avval yuqori sig‘imli modelni tanlab, keyin mijozning joyi va budjetiga moslashtirish.",
+                        "Texnik ko‘rsatkichlarni ko‘rsatib, foydalanish sharoiti haqida keyingi bosqichda so‘rash.",
+                        "Do‘konda mavjud modelni birinchi tavsiya qilib, boshqa variantlarni faqat so‘ralsa ko‘rsatish."},
+                {"E’tiroz sababini aniqlab, teng sharoitdagi xususiyatlarni dalil bilan solishtirish va mos alternativa berish.",
+                        "Narxni raqobatchi bilan solishtirish, lekin komplektatsiya va kafolat farqini keyinroq qoldirish.",
+                        "Mijozni yo‘qotmaslik uchun vakolatni tekshirmasdan chegirma taklif qilish.",
+                        "Texnik afzalliklarni batafsil sanash, ammo mijoz aynan nimani qimmat deb bilayotganini aniqlamaslik."},
+                {"Bir xil ehtiyoj bo‘yicha funksiyalar, kafolat, sarf-xarajat, xizmat va yakuniy qiymatni taqqoslash.",
+                        "Avval energiya sarfini solishtirib, narx va servis farqini xariddan keyin tushuntirish.",
+                        "Brend va reklamadagi asosiy ko‘rsatkichlarga qarab xulosa chiqarish.",
+                        "Har bir modelning eng kuchli tomonini aytib, zaif tomonlarini mijoz so‘ragandagina izohlash."},
+                {"Aynan model, rang va komplektatsiya qoldig‘ini real tizim yoki ombor orqali tekshirib, keyin muddatni tasdiqlash.",
+                        "Tizimdagi umumiy mahsulot sonini ko‘rib, kerakli rang ham bor deb hisoblash.",
+                        "Avval buyurtmani rasmiylashtirib, qoldiqni keyin ombor bilan aniqlashtirish.",
+                        "So‘nggi yangilangan qoldiqni tekshirib, uning vaqti va joylashuvini tasdiqlamasdan mijozga aytish."},
+                {"Boshlang‘ich to‘lovni ajratib, tanlangan muddat shartini qo‘llash va oylik hamda jami to‘lovni birga ko‘rsatish.",
+                        "Oylik summani aytib, jami to‘lovni mijoz alohida so‘raganida hisoblash.",
+                        "Boshlang‘ich to‘lovni hisobga olmasdan, mahsulotning to‘liq narxiga ustama qo‘shib jadval tuzish.",
+                        "Naqd narx bilan oylik summani ko‘rsatish, ammo muddat va ustama miqdorini alohida izohlamaslik."},
+                {"Aniq modelni topib, rasmiy kafolat muddati, istisnolar, boshlanish sanasi va servis tartibini hujjatdan tekshirish.",
+                        "Shu turdagi mahsulotlarda odatda uchraydigan muddatni aytib, hujjatni xarid paytida ko‘rsatish.",
+                        "Kafolat talonidagi muddatni aytish, ammo qamrab olinmaydigan holatlarni mijoz so‘ramaguncha tushuntirmaslik.",
+                        "Ishlab chiqaruvchi kafolati va do‘kon xizmatini bitta umumiy kafolat sifatida bayon qilish."},
+                {"Mijoz tanlagan funksiyani yo‘riqnoma asosida xavfsiz ko‘rsatib, uning amaliy cheklovlarini ham tushuntirish.",
+                        "Barcha funksiyalarni ketma-ket namoyish qilib, mijozga qaysi biri zarurligini keyin tanlatish.",
+                        "Mahsulotni tezroq tushuntirish uchun xavfsizlik sozlamalarini vaqtincha chetlab o‘tish.",
+                        "Faqat reklama xususiyatlarini ko‘rsatib, amaliy sinovni xariddan keyinga qoldirish."},
+                {"Murojaatni xolis tinglab, xarid dalili va holatni qayd etish, keyin rasmiy tekshiruv tartibiga yo‘naltirish.",
+                        "Mijozni tinchlantirish uchun tekshiruvdan oldin almashtirish yoki pul qaytarishni va’da qilish.",
+                        "Muammoni tez tugatish uchun servis xulosasisiz foydalanish xatosi deb izohlash.",
+                        "Mijozga servis markazi raqamini berib, murojaat tafsilotlarini qayd etmaslik."},
+                {"Moslik, real foyda va narxni tekshirib, aksessuarni ixtiyoriy qo‘shimcha sifatida taklif qilish.",
+                        "Ko‘proq tejamkor ko‘rinishi uchun aksessuarni asosiy mahsulot bilan bir paketda majburiy taklif qilish.",
+                        "Moslikni taxminan tekshirib, xariddan keyin almashtirish mumkinligini aytish.",
+                        "Aksessuar foydasini tushuntirish, lekin uning alohida narxi va kafolatini umumiy summaga qo‘shib yuborish."},
+                {"Model, rang, son, chegirma, to‘lov jadvali, jami summa, yetkazish va kafolatni mijoz bilan qayta tasdiqlash.",
+                        "Model va narxni tasdiqlab, qolgan bandlarni ombor buyurtmani qabul qilganda tekshirish.",
+                        "Oylik to‘lovni tasdiqlab, boshlang‘ich va jami summani tizimdagi hisobga qoldirish.",
+                        "Mijozning og‘zaki roziligini olib, tizimdagi buyurtma tafsilotlarini keyin tuzatish."}
         };
 
         int[] correct = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -3576,6 +3583,91 @@ public class MainActivity extends Activity {
         int balance = getQuizCoinBalance();
         coinBalanceLabel.setText("🪙" + balance);
         coinBalanceLabel.setContentDescription("To‘plangan tangalar: " + balance);
+    }
+
+    private void addSellerQuizLaunchButton(LinearLayout parent) {
+        GlassPanel launchPanel = new GlassPanel(this, false, 17);
+        launchPanel.setOrientation(LinearLayout.VERTICAL);
+        launchPanel.setPadding(dp(13), dp(12), dp(13), dp(12));
+        LinearLayout.LayoutParams panelParams = matchWrap();
+        panelParams.topMargin = dp(14);
+        parent.addView(launchPanel, panelParams);
+
+        TextView heading = text("🧠  SOTUVCHI BILIMINI SINANG", 10, DARK_GREEN, true);
+        heading.setLetterSpacing(0.025f);
+        launchPanel.addView(heading, matchWrap());
+
+        TextView description = text(
+                "Murakkab savdo vaziyatlari, to‘lov hisob-kitoblari va mijoz bilan ishlash bo‘yicha 100 ta kunlik savol.",
+                10, TEXT, false);
+        description.setPadding(0, dp(7), 0, dp(9));
+        description.setLineSpacing(dp(2), 1f);
+        launchPanel.addView(description, matchWrap());
+
+        Button launchButton = calculatorButton("VIKTORINANI BOSHLASH  →", 10, true, false);
+        launchPanel.addView(launchButton, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(42)));
+        launchButton.setOnClickListener(v -> showSellerQuizDialog());
+    }
+
+    private void showSellerQuizDialog() {
+        if (sellerQuizDialog != null && sellerQuizDialog.isShowing()) return;
+
+        Dialog dialog = new Dialog(this);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(9), dp(9), dp(9), dp(9));
+
+        GlassPanel panel = new GlassPanel(this, false, 22);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(13), dp(12), dp(13), dp(13));
+        root.addView(panel, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = text("AKSO  /  SOTUVCHI VIKTORINASI", 10, DARK_GREEN, true);
+        title.setLetterSpacing(0.035f);
+        header.addView(title, new LinearLayout.LayoutParams(0, dp(40), 1f));
+        Button closeButton = calculatorButton("✕", 12, false, true);
+        header.addView(closeButton, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        closeButton.setOnClickListener(v -> dialog.dismiss());
+        panel.addView(header, matchWrap());
+
+        ScrollView quizScroll = new ScrollView(this);
+        quizScroll.setFillViewport(false);
+        quizScroll.setVerticalScrollBarEnabled(false);
+        LinearLayout quizContent = new LinearLayout(this);
+        quizContent.setOrientation(LinearLayout.VERTICAL);
+        quizScroll.addView(quizContent, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        panel.addView(quizScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        addSellerQuizSection(quizContent);
+        dialog.setContentView(root);
+        dialog.setCancelable(true);
+        dialog.setCanceledOnTouchOutside(false);
+        sellerQuizDialog = dialog;
+        dialog.setOnDismissListener(ignored -> {
+            if (sellerQuizDialog == dialog) sellerQuizDialog = null;
+        });
+
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            WindowManager.LayoutParams attributes = window.getAttributes();
+            attributes.dimAmount = 0.48f;
+            window.setAttributes(attributes);
+            int screenWidth = getResources().getDisplayMetrics().widthPixels;
+            int screenHeight = getResources().getDisplayMetrics().heightPixels;
+            window.setLayout(Math.min(screenWidth - dp(20), dp(480)),
+                    Math.min(screenHeight - dp(48), Math.round(screenHeight * 0.92f)));
+            window.setGravity(Gravity.CENTER);
+        }
     }
 
     private void addSellerQuizSection(LinearLayout parent) {
@@ -3784,7 +3876,7 @@ public class MainActivity extends Activity {
         }
         if (oldScrim != null) oldScrim.animate().alpha(0f).setDuration(180).start();
         if (oldPanel != null) {
-            oldPanel.animate().translationX(-drawerWidthPx).setDuration(210)
+            oldPanel.animate().translationX(-drawerWidthPx).setDuration(170)
                     .withEndAction(() -> {
                         if (drawerHost != null && oldOverlay.getParent() == drawerHost) {
                             drawerHost.removeView(oldOverlay);
@@ -3802,6 +3894,8 @@ public class MainActivity extends Activity {
         drawerArticleTitle = null;
         drawerArticleBody = null;
         drawerUpdateLabel = null;
+        drawerNextArticleButton = null;
+        drawerSelectedArticleIndex = -1;
     }
 
     private void scheduleDrawerHourlyRefresh() {
@@ -3866,7 +3960,10 @@ public class MainActivity extends Activity {
                 items = root.optJSONArray("items");
             }
             long hourIndex = System.currentTimeMillis() / TimeUnit.HOURS.toMillis(1);
-            JSONObject item = items.getJSONObject((int) (hourIndex % items.length()));
+            if (drawerSelectedArticleIndex < 0 || drawerSelectedArticleIndex >= items.length()) {
+                drawerSelectedArticleIndex = (int) (hourIndex % items.length());
+            }
+            JSONObject item = items.getJSONObject(drawerSelectedArticleIndex);
             String id = item.optString("id", "akso_default").replaceAll("[^a-zA-Z0-9_-]", "_");
             drawerArticleTitle.setText(item.optString("title", "Savdo bo‘yicha maslahat"));
             drawerArticleBody.setText(item.optString("body", ""));
@@ -3887,7 +3984,13 @@ public class MainActivity extends Activity {
             String status = updatedAt > 0
                     ? "Kontent yangilangan: " + new SimpleDateFormat("dd.MM.yyyy  HH:mm", Locale.getDefault()).format(updatedAt)
                     : "Boshlang‘ich maqola telefonning ichida saqlangan";
-            drawerUpdateLabel.setText(status + "  ·  Rasm: " + item.optString("credit", "Unsplash"));
+            drawerUpdateLabel.setText("MASLAHAT " + (drawerSelectedArticleIndex + 1) + "/" + items.length()
+                    + "  ·  " + status + "  ·  Rasm: " + item.optString("credit", "Unsplash"));
+            if (drawerNextArticleButton != null) {
+                drawerNextArticleButton.setText("KEYINGI MASLAHAT  →  "
+                        + (drawerSelectedArticleIndex + 1 == items.length()
+                        ? "(1/" + items.length() + ")" : "(" + (drawerSelectedArticleIndex + 2) + "/" + items.length() + ")"));
+            }
         } catch (JSONException error) {
             drawerArticleTitle.setText("Mijozga qiymat taklif qiling");
             drawerArticleBody.setText("Mahsulotning foydasini tushuntiring, mijozni tinglang va to‘lov shartlarini aniq ko‘rsating.");
@@ -3897,6 +4000,10 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (sellerQuizDialog != null && sellerQuizDialog.isShowing()) {
+            sellerQuizDialog.dismiss();
+            return;
+        }
         if (drawerOverlay != null) {
             closeSalesInspirationDrawer();
             return;
@@ -3916,6 +4023,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (sellerQuizDialog != null && sellerQuizDialog.isShowing()) sellerQuizDialog.dismiss();
         if (drawerHourlyRefresh != null) drawerHandler.removeCallbacks(drawerHourlyRefresh);
         if (drawerCachePoll != null) drawerHandler.removeCallbacks(drawerCachePoll);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && mainScrollView != null) {
@@ -3930,19 +4038,15 @@ public class MainActivity extends Activity {
         private float downY;
         private boolean trackingGesture;
 
-        // Let the user begin the gesture well inside the screen, not just at its edge.
-        // The system Back gesture owns the extreme edge on many Android devices, so
-        // starting a little inward is more reliable. The active zone scales with the
-        // display and is capped to avoid swallowing horizontal gestures across the UI.
+        // A rightward horizontal swipe can start anywhere on the home screen.
+        // Vertical gestures are still passed to the calculator's ScrollView.
         private int getDrawerGestureStartWidth() {
-            int screenWidth = getWidth() > 0
-                    ? getWidth() : getResources().getDisplayMetrics().widthPixels;
-            return Math.min(dp(240), Math.max(dp(140), screenWidth * 2 / 5));
+            return getWidth() > 0 ? getWidth() : getResources().getDisplayMetrics().widthPixels;
         }
 
-        // A deliberate but comfortable pull distance, similar to a navigation drawer.
+        // A shorter activation distance makes the drawer feel immediate.
         private int getDrawerSwipeDistance() {
-            return dp(72);
+            return dp(30);
         }
 
         DrawerHost(Context context) { super(context); }
@@ -3962,7 +4066,7 @@ public class MainActivity extends Activity {
                         float dx = event.getX() - downX;
                         float dy = event.getY() - downY;
                         boolean horizontal = Math.abs(dx) > getDrawerSwipeDistance()
-                                && Math.abs(dx) > Math.abs(dy) * 1.25f;
+                                && Math.abs(dx) > Math.abs(dy) * 1.15f;
                         if (horizontal && ((drawerOverlay == null && dx > 0)
                                 || (drawerOverlay != null && dx < 0))) return true;
                     }
@@ -3981,7 +4085,7 @@ public class MainActivity extends Activity {
                 float dx = event.getX() - downX;
                 float dy = event.getY() - downY;
                 boolean horizontalPull = Math.abs(dx) > getDrawerSwipeDistance()
-                        && Math.abs(dx) > Math.abs(dy) * 1.25f;
+                        && Math.abs(dx) > Math.abs(dy) * 1.15f;
                 if (horizontalPull) {
                     if (drawerOverlay == null && dx > 0
                             && downX <= getDrawerGestureStartWidth()) {
