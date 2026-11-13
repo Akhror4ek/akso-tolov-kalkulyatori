@@ -35,7 +35,10 @@ import org.json.JSONObject;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
@@ -97,6 +100,20 @@ public class WasytSellerActivity extends Activity {
     private String historyToken = "";
     private final List<WasytSellerApi.Cart> historyAllCarts = new ArrayList<>();
 
+    private Dialog mySalesDialog;
+    private TextView mySalesLoadLabel;
+    private TextView mySalesMonthTitle;
+    private TextView mySalesMonthlyTotal;
+    private TextView mySalesMonthMeta;
+    private TextView mySalesSelectedSummary;
+    private LinearLayout mySalesCalendarGrid;
+    private LinearLayout mySalesDayList;
+    private Calendar mySalesDisplayedMonth;
+    private Calendar mySalesSelectedDate;
+    private String mySalesToken = "";
+    private boolean mySalesLoading = false;
+    private final List<WasytSellerApi.Cart> myCompletedSales = new ArrayList<>();
+
     private static final class CartItem {
         final WasytBarcodeScanner.ProductInfo product;
         int quantity;
@@ -155,12 +172,19 @@ public class WasytSellerActivity extends Activity {
         titleParams.leftMargin = dp(10);
         header.addView(titleBox, titleParams);
         titleBox.addView(label("AKSO  /  WASYT", 9, 0xFFD9F8E5, true), matchWrap());
-        titleBox.addView(label("Sotuvchi moduli", 17, Color.WHITE, true), matchWrap());
+        titleBox.addView(label("Sotuvchi moduli", 15, Color.WHITE, true), matchWrap());
 
         TextView history = button("SAVATLAR", false);
-        history.setTextSize(9);
-        header.addView(history, new LinearLayout.LayoutParams(dp(88), dp(40)));
+        history.setTextSize(8);
+        header.addView(history, new LinearLayout.LayoutParams(dp(76), dp(40)));
         history.setOnClickListener(v -> showCartHistory());
+
+        TextView mySales = button("SAVDOLARIM", true);
+        mySales.setTextSize(8);
+        LinearLayout.LayoutParams mySalesParams = new LinearLayout.LayoutParams(dp(86), dp(40));
+        mySalesParams.leftMargin = dp(5);
+        header.addView(mySales, mySalesParams);
+        mySales.setOnClickListener(v -> showMySalesCalendar());
 
         addSpace(page, 12);
         addSectionTitle("MAHSULOT QIDIRISH");
@@ -849,6 +873,450 @@ public class WasytSellerActivity extends Activity {
         return "Mijoz ID: " + clientId;
     }
 
+    private boolean isCompletedSaleCart(WasytSellerApi.Cart cart) {
+        if (cart == null || isCartCancelled(cart)) return false;
+        String status = safeLower(cart.status);
+        String sale = safeLower(cart.saleStatus);
+        return isCompletedSaleState(status) || isCompletedSaleState(sale);
+    }
+
+    private boolean isCompletedSaleState(String value) {
+        return "completed".equals(value) || "done".equals(value)
+                || "finished".equals(value) || "paid".equals(value)
+                || "closed".equals(value) || "sold".equals(value);
+    }
+
+    private void showMySalesCalendar() {
+        Calendar now = Calendar.getInstance();
+        mySalesDisplayedMonth = (Calendar) now.clone();
+        mySalesDisplayedMonth.set(Calendar.DAY_OF_MONTH, 1);
+        mySalesSelectedDate = (Calendar) now.clone();
+        mySalesToken = WasytSecureStore.getValidToken(this);
+        myCompletedSales.clear();
+        mySalesLoading = false;
+
+        mySalesDialog = new Dialog(this);
+        LinearLayout shell = card();
+        shell.setPadding(dp(13), dp(12), dp(13), dp(11));
+        shell.setBackground(rounded(0xFF214A36, 0xFF0C2118, 22, 0xBFFFFFFF));
+        shell.setOrientation(LinearLayout.VERTICAL);
+
+        LinearLayout heading = new LinearLayout(this);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        shell.addView(heading, matchWidth(dp(42)));
+        LinearLayout headingText = new LinearLayout(this);
+        headingText.setOrientation(LinearLayout.VERTICAL);
+        heading.addView(headingText, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        headingText.addView(label("AKSO  /  WASYT", 8, MUTED, true), matchWrap());
+        headingText.addView(label("SAVDOLARIM", 15, WHITE, true), matchWrap());
+
+        TextView refresh = button("YANGILASH", false);
+        refresh.setTextSize(8);
+        heading.addView(refresh, new LinearLayout.LayoutParams(dp(78), dp(36)));
+        refresh.setOnClickListener(v -> loadMySalesData());
+        TextView close = button("YOPISH", false);
+        close.setTextSize(8);
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(62), dp(36));
+        closeParams.leftMargin = dp(5);
+        heading.addView(close, closeParams);
+        close.setOnClickListener(v -> mySalesDialog.dismiss());
+
+        mySalesLoadLabel = label("WASYT savdolari yuklanmoqda…", 9, LIGHT_GREEN, true);
+        LinearLayout.LayoutParams loadParams = matchWidth(dp(22));
+        loadParams.topMargin = dp(4);
+        shell.addView(mySalesLoadLabel, loadParams);
+
+        LinearLayout monthNav = new LinearLayout(this);
+        monthNav.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams navParams = matchWidth(dp(38));
+        navParams.topMargin = dp(3);
+        shell.addView(monthNav, navParams);
+        TextView previous = button("‹", false);
+        previous.setTextSize(18);
+        monthNav.addView(previous, new LinearLayout.LayoutParams(dp(38), dp(34)));
+        mySalesMonthTitle = label("", 12, WHITE, true);
+        mySalesMonthTitle.setGravity(Gravity.CENTER);
+        monthNav.addView(mySalesMonthTitle, new LinearLayout.LayoutParams(0, dp(34), 1f));
+        TextView next = button("›", false);
+        next.setTextSize(18);
+        monthNav.addView(next, new LinearLayout.LayoutParams(dp(38), dp(34)));
+        previous.setOnClickListener(v -> changeMySalesMonth(-1));
+        next.setOnClickListener(v -> changeMySalesMonth(1));
+
+        LinearLayout summary = card();
+        summary.setOrientation(LinearLayout.HORIZONTAL);
+        summary.setGravity(Gravity.CENTER_VERTICAL);
+        summary.setPadding(dp(10), dp(7), dp(10), dp(7));
+        LinearLayout.LayoutParams summaryParams = matchWidth(dp(58));
+        summaryParams.topMargin = dp(5);
+        shell.addView(summary, summaryParams);
+        LinearLayout summaryText = new LinearLayout(this);
+        summaryText.setOrientation(LinearLayout.VERTICAL);
+        summary.addView(summaryText, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        summaryText.addView(label("OYLIK YAKUNLANGAN SAVDOLAR", 8, MUTED, true), matchWrap());
+        mySalesMonthlyTotal = label("0 so'm", 16, LIGHT_GREEN, true);
+        summaryText.addView(mySalesMonthlyTotal, matchWrap());
+        mySalesMonthMeta = label("0 ta savdo · 0 kun", 8, WHITE, false);
+        mySalesMonthMeta.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        summary.addView(mySalesMonthMeta, wrapWrap());
+
+        LinearLayout weekdays = new LinearLayout(this);
+        weekdays.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams weekdayParams = matchWidth(dp(20));
+        weekdayParams.topMargin = dp(5);
+        shell.addView(weekdays, weekdayParams);
+        String[] dayNames = {"Du", "Se", "Ch", "Pa", "Ju", "Sh", "Ya"};
+        for (String dayName : dayNames) {
+            TextView day = label(dayName, 8, MUTED, true);
+            day.setGravity(Gravity.CENTER);
+            weekdays.addView(day, new LinearLayout.LayoutParams(0,
+                    ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+        }
+
+        mySalesCalendarGrid = new LinearLayout(this);
+        mySalesCalendarGrid.setOrientation(LinearLayout.VERTICAL);
+        shell.addView(mySalesCalendarGrid, matchWrap());
+
+        mySalesSelectedSummary = label("", 9, LIGHT_GREEN, true);
+        mySalesSelectedSummary.setPadding(dp(2), dp(7), dp(2), dp(5));
+        shell.addView(mySalesSelectedSummary, matchWrap());
+
+        ScrollView listScroll = new ScrollView(this);
+        listScroll.setFillViewport(false);
+        listScroll.setVerticalScrollBarEnabled(true);
+        LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        shell.addView(listScroll, listParams);
+        mySalesDayList = new LinearLayout(this);
+        mySalesDayList.setOrientation(LinearLayout.VERTICAL);
+        listScroll.addView(mySalesDayList, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        mySalesDialog.setContentView(shell);
+        mySalesDialog.setCancelable(true);
+        mySalesDialog.show();
+        Window window = mySalesDialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            int width = getResources().getDisplayMetrics().widthPixels - dp(28);
+            int height = Math.min(getResources().getDisplayMetrics().heightPixels - dp(90), dp(760));
+            window.setLayout(width, height);
+        }
+        refreshMySalesCalendar();
+        loadMySalesData();
+    }
+
+    private void loadMySalesData() {
+        if (mySalesDialog == null || !mySalesDialog.isShowing()) return;
+        if (mySalesLoading) {
+            Toast.makeText(this, "Savdolar yangilanmoqda.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        mySalesLoading = true;
+        myCompletedSales.clear();
+        mySalesLoadLabel.setText("WASYT yakunlangan savdolari yuklanmoqda…");
+        refreshMySalesCalendar();
+
+        final String token = mySalesToken;
+        network.execute(() -> {
+            try {
+                WasytSellerApi.CartPage first = WasytSellerApi.listCartPage(token, 1);
+                ArrayList<WasytSellerApi.Cart> completed = new ArrayList<>();
+                for (WasytSellerApi.Cart cart : first.carts) {
+                    if (isCompletedSaleCart(cart)) completed.add(cart);
+                }
+                final int lastPage = Math.max(1, first.lastPage);
+                final int serverTotal = first.total;
+                main.post(() -> {
+                    if (!isMySalesDialogVisible()) return;
+                    myCompletedSales.clear();
+                    myCompletedSales.addAll(completed);
+                    mySalesLoadLabel.setText("Savdolar olinmoqda: 1 / " + lastPage
+                            + " sahifa  ·  " + completed.size() + " ta yakunlangan");
+                    refreshMySalesCalendar();
+                });
+
+                for (int pageNo = 2; pageNo <= lastPage; pageNo++) {
+                    WasytSellerApi.CartPage next = WasytSellerApi.listCartPage(token, pageNo);
+                    if (next.carts != null) {
+                        for (WasytSellerApi.Cart cart : next.carts) {
+                            if (isCompletedSaleCart(cart)) completed.add(cart);
+                        }
+                    }
+                    if (pageNo == lastPage || pageNo % 3 == 0) {
+                        ArrayList<WasytSellerApi.Cart> snapshot = new ArrayList<>(completed);
+                        final int donePages = pageNo;
+                        main.post(() -> {
+                            if (!isMySalesDialogVisible()) return;
+                            myCompletedSales.clear();
+                            myCompletedSales.addAll(snapshot);
+                            mySalesLoadLabel.setText("Savdolar olinmoqda: " + donePages
+                                    + " / " + lastPage + " sahifa  ·  "
+                                    + snapshot.size() + " / " + serverTotal + " savat tekshirildi");
+                            refreshMySalesCalendar();
+                        });
+                    }
+                }
+
+                ArrayList<WasytSellerApi.Cart> result = new ArrayList<>(completed);
+                main.post(() -> {
+                    if (!isMySalesDialogVisible()) return;
+                    myCompletedSales.clear();
+                    myCompletedSales.addAll(result);
+                    mySalesLoading = false;
+                    mySalesLoadLabel.setText("Yuklandi: " + result.size()
+                            + " ta yakunlangan savdo");
+                    refreshMySalesCalendar();
+                });
+            } catch (Exception error) {
+                String message = error.getMessage() == null
+                        ? "WASYT savdolarini yuklab bo'lmadi." : error.getMessage();
+                main.post(() -> {
+                    if (!isMySalesDialogVisible()) return;
+                    mySalesLoading = false;
+                    mySalesLoadLabel.setText("Savdolar yuklanmadi. YANGILASH tugmasini bosing.");
+                    refreshMySalesCalendar();
+                    showError("Savdolarim", message);
+                });
+            }
+        });
+    }
+
+    private boolean isMySalesDialogVisible() {
+        return !isFinishing() && !isDestroyed()
+                && mySalesDialog != null && mySalesDialog.isShowing();
+    }
+
+    private void changeMySalesMonth(int amount) {
+        int selectedDay = mySalesSelectedDate.get(Calendar.DAY_OF_MONTH);
+        mySalesDisplayedMonth.add(Calendar.MONTH, amount);
+        int maxDay = mySalesDisplayedMonth.getActualMaximum(Calendar.DAY_OF_MONTH);
+        mySalesSelectedDate.set(mySalesDisplayedMonth.get(Calendar.YEAR),
+                mySalesDisplayedMonth.get(Calendar.MONTH), Math.min(selectedDay, maxDay));
+        refreshMySalesCalendar();
+    }
+
+    private void selectMySalesDay(int day) {
+        mySalesSelectedDate.set(mySalesDisplayedMonth.get(Calendar.YEAR),
+                mySalesDisplayedMonth.get(Calendar.MONTH), day);
+        refreshMySalesCalendar();
+    }
+
+    private Calendar getCompletedSaleDate(WasytSellerApi.Cart cart) {
+        String[] candidates = {
+                cart.completedAt, cart.updatedAt, cart.sentAt, cart.createdAt
+        };
+        String[] patterns = {
+                "yyyy-MM-dd HH:mm:ss",
+                "yyyy-MM-dd'T'HH:mm:ss.SSSX",
+                "yyyy-MM-dd'T'HH:mm:ssX",
+                "yyyy-MM-dd'T'HH:mm:ss",
+                "yyyy-MM-dd"
+        };
+        for (String candidate : candidates) {
+            if (candidate == null || candidate.trim().isEmpty()
+                    || "null".equalsIgnoreCase(candidate.trim())) continue;
+            for (String pattern : patterns) {
+                try {
+                    SimpleDateFormat parser = new SimpleDateFormat(pattern, Locale.US);
+                    parser.setLenient(false);
+                    Date parsed = parser.parse(candidate.trim());
+                    if (parsed != null) {
+                        Calendar date = Calendar.getInstance();
+                        date.setTime(parsed);
+                        return date;
+                    }
+                } catch (Exception ignored) { }
+            }
+        }
+        return null;
+    }
+
+    private boolean isSameMySalesDate(Calendar first, Calendar second) {
+        return first.get(Calendar.YEAR) == second.get(Calendar.YEAR)
+                && first.get(Calendar.DAY_OF_YEAR) == second.get(Calendar.DAY_OF_YEAR);
+    }
+
+    private BigDecimal getMySalesForDate(Calendar date) {
+        BigDecimal total = BigDecimal.ZERO;
+        for (WasytSellerApi.Cart cart : myCompletedSales) {
+            Calendar saleDate = getCompletedSaleDate(cart);
+            if (saleDate != null && isSameMySalesDate(saleDate, date)) {
+                total = total.add(BigDecimal.valueOf(Math.max(0L, cart.totalAmount)));
+            }
+        }
+        return total;
+    }
+
+    private int getMySalesCountForDate(Calendar date) {
+        int count = 0;
+        for (WasytSellerApi.Cart cart : myCompletedSales) {
+            Calendar saleDate = getCompletedSaleDate(cart);
+            if (saleDate != null && isSameMySalesDate(saleDate, date)) count++;
+        }
+        return count;
+    }
+
+    private String compactMySalesAmount(BigDecimal amount) {
+        BigDecimal million = BigDecimal.valueOf(1_000_000L);
+        BigDecimal thousand = BigDecimal.valueOf(1_000L);
+        if (amount.compareTo(million) >= 0) {
+            return amount.divide(million, 1, RoundingMode.HALF_UP)
+                    .stripTrailingZeros().toPlainString() + "m";
+        }
+        if (amount.compareTo(thousand) >= 0) {
+            return amount.divide(thousand, 0, RoundingMode.HALF_UP)
+                    .stripTrailingZeros().toPlainString() + "k";
+        }
+        return amount.stripTrailingZeros().toPlainString();
+    }
+
+    private void refreshMySalesCalendar() {
+        if (mySalesCalendarGrid == null || mySalesDisplayedMonth == null) return;
+        Locale uz = new Locale("uz", "UZ");
+        SimpleDateFormat monthFormat = new SimpleDateFormat("LLLL yyyy", uz);
+        String month = monthFormat.format(mySalesDisplayedMonth.getTime());
+        mySalesMonthTitle.setText(month.substring(0, 1).toUpperCase(uz) + month.substring(1));
+        mySalesCalendarGrid.removeAllViews();
+
+        Calendar first = (Calendar) mySalesDisplayedMonth.clone();
+        first.set(Calendar.DAY_OF_MONTH, 1);
+        int offset = (first.get(Calendar.DAY_OF_WEEK) + 5) % 7;
+        int maxDay = first.getActualMaximum(Calendar.DAY_OF_MONTH);
+        for (int week = 0; week < 6; week++) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            LinearLayout.LayoutParams rowParams = matchWrap();
+            if (week > 0) rowParams.topMargin = dp(3);
+            mySalesCalendarGrid.addView(row, rowParams);
+            for (int column = 0; column < 7; column++) {
+                int day = week * 7 + column - offset + 1;
+                LinearLayout.LayoutParams cellParams = new LinearLayout.LayoutParams(0, dp(42), 1f);
+                if (column > 0) cellParams.leftMargin = dp(2);
+                if (day < 1 || day > maxDay) {
+                    row.addView(new View(this), cellParams);
+                } else {
+                    Calendar date = (Calendar) mySalesDisplayedMonth.clone();
+                    date.set(Calendar.DAY_OF_MONTH, day);
+                    row.addView(buildMySalesDayCell(day, getMySalesForDate(date),
+                            isSameMySalesDate(date, mySalesSelectedDate)), cellParams);
+                }
+            }
+        }
+
+        BigDecimal monthTotal = BigDecimal.ZERO;
+        int monthSalesCount = 0;
+        int activeDays = 0;
+        for (int day = 1; day <= maxDay; day++) {
+            Calendar date = (Calendar) mySalesDisplayedMonth.clone();
+            date.set(Calendar.DAY_OF_MONTH, day);
+            BigDecimal amount = getMySalesForDate(date);
+            if (amount.signum() > 0) activeDays++;
+            monthTotal = monthTotal.add(amount);
+            monthSalesCount += getMySalesCountForDate(date);
+        }
+        mySalesMonthlyTotal.setText(formatMoney(monthTotal.longValue()) + " so'm");
+        mySalesMonthMeta.setText(monthSalesCount + " ta savdo · " + activeDays + " kun");
+
+        SimpleDateFormat dateFormat = new SimpleDateFormat("d MMMM yyyy", uz);
+        int dayCount = getMySalesCountForDate(mySalesSelectedDate);
+        mySalesSelectedSummary.setText(dateFormat.format(mySalesSelectedDate.getTime())
+                + "  ·  " + dayCount + " ta savdo  ·  Kunlik jami: "
+                + formatMoney(getMySalesForDate(mySalesSelectedDate).longValue()) + " so'm");
+        renderMySalesDayList();
+    }
+
+    private View buildMySalesDayCell(int day, BigDecimal amount, boolean selected) {
+        LinearLayout cell = new LinearLayout(this);
+        cell.setOrientation(LinearLayout.VERTICAL);
+        cell.setGravity(Gravity.CENTER);
+        cell.setPadding(dp(1), dp(2), dp(1), dp(2));
+        int bg1, bg2, stroke, dayColor, amountColor;
+        if (selected) {
+            bg1 = 0xE52BC27B;
+            bg2 = 0xD70E8053;
+            stroke = 0xEEFFFFFF;
+            dayColor = Color.WHITE;
+            amountColor = Color.WHITE;
+        } else if (amount.signum() > 0) {
+            bg1 = 0xC83B7657;
+            bg2 = 0xA82A5942;
+            stroke = 0x7769D9A0;
+            dayColor = WHITE;
+            amountColor = LIGHT_GREEN;
+        } else {
+            bg1 = 0x55334B3D;
+            bg2 = 0x33273B30;
+            stroke = 0x446F927D;
+            dayColor = MUTED;
+            amountColor = MUTED;
+        }
+        GradientDrawable background = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR, new int[]{bg1, bg2});
+        background.setCornerRadius(dp(8));
+        background.setStroke(dp(1), stroke);
+        cell.setBackground(background);
+        TextView dayNumber = label(String.valueOf(day), 9, dayColor, true);
+        dayNumber.setGravity(Gravity.CENTER);
+        cell.addView(dayNumber, matchWrap());
+        TextView amountText = label(amount.signum() > 0
+                ? compactMySalesAmount(amount) : "·", 7, amountColor, true);
+        amountText.setGravity(Gravity.CENTER);
+        amountText.setSingleLine(true);
+        cell.addView(amountText, matchWrap());
+        cell.setOnClickListener(v -> selectMySalesDay(day));
+        return cell;
+    }
+
+    private void renderMySalesDayList() {
+        if (mySalesDayList == null || mySalesSelectedDate == null) return;
+        mySalesDayList.removeAllViews();
+        int count = 0;
+        for (WasytSellerApi.Cart cart : myCompletedSales) {
+            Calendar date = getCompletedSaleDate(cart);
+            if (date == null || !isSameMySalesDate(date, mySalesSelectedDate)) continue;
+            addMySalesEntry(cart, date);
+            count++;
+        }
+        if (count == 0) {
+            LinearLayout empty = card();
+            empty.addView(label("Bu kunda yakunlangan savdolar yo'q.", 10, MUTED, false), matchWrap());
+            mySalesDayList.addView(empty, matchWrap());
+        }
+    }
+
+    private void addMySalesEntry(WasytSellerApi.Cart cart, Calendar saleDate) {
+        LinearLayout item = card();
+        LinearLayout.LayoutParams itemParams = matchWrap();
+        itemParams.bottomMargin = dp(7);
+        mySalesDayList.addView(item, itemParams);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        item.addView(top, matchWrap());
+        LinearLayout info = new LinearLayout(this);
+        info.setOrientation(LinearLayout.VERTICAL);
+        top.addView(info, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        info.addView(label("SAVDO  #" + (cart.saleId > 0 ? cart.saleId : cart.code),
+                10, WHITE, true), matchWrap());
+        info.addView(label(cart.clientName.isEmpty() ? "Mijoz tanlanmagan" : cart.clientName,
+                9, MUTED, false), matchWrap());
+
+        TextView amount = label(formatMoney(cart.totalAmount) + " so'm", 13, LIGHT_GREEN, true);
+        amount.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        top.addView(amount, wrapWrap());
+
+        SimpleDateFormat time = new SimpleDateFormat("HH:mm", Locale.US);
+        String meta = time.format(saleDate.getTime()) + "  ·  "
+                + cart.productsCount + " ta mahsulot";
+        if (cart.saleId > 0) meta += "  ·  Kassa #" + cart.saleId;
+        item.addView(label(meta, 8, MUTED, false), matchWrap());
+        item.setOnClickListener(v -> showCartDetails(cart));
+    }
+
     private void showCartHistory() {
         historyPage = 1;
         historyFilter = "all";
@@ -1153,16 +1621,11 @@ public class WasytSellerActivity extends Activity {
         String sale = safeLower(cart.saleStatus);
         String combined = status + " " + sale;
         if ("cancelled".equals(historyFilter)) return isCartCancelled(cart);
-        if ("completed".equals(historyFilter)) {
-            return status.equals("completed") || status.equals("done")
-                    || status.equals("finished") || sale.equals("completed")
-                    || sale.equals("done") || sale.equals("finished");
-        }
+        if ("completed".equals(historyFilter)) return isCompletedSaleCart(cart);
         if ("sent".equals(historyFilter)) {
             return (status.equals("sent") || status.equals("cashier") || status.equals("cash"))
                     && !isCartCancelled(cart)
-                    && !sale.equals("completed") && !sale.equals("done")
-                    && !sale.equals("finished");
+                    && !isCompletedSaleCart(cart);
         }
         if ("picking".equals(historyFilter)) {
             return (status.equals("picking") || status.equals("reserved"))
@@ -1184,14 +1647,9 @@ public class WasytSellerActivity extends Activity {
         if (combined.contains("return")) return "QAYTARILGAN";
         if (isCartCancelled(cart)) return "BEKOR QILINGAN";
         if (status.equals("picking") || status.equals("reserved")) return "TANLOVDA";
+        if (isCompletedSaleCart(cart)) return "YAKUNLANGAN";
         if (status.equals("sent") || status.equals("cashier") || status.equals("cash")) {
-            if (sale.equals("completed") || sale.equals("done") || sale.equals("finished")) {
-                return "YAKUNLANGAN";
-            }
             return "KASSADA";
-        }
-        if (status.equals("completed") || status.equals("done") || status.equals("finished")) {
-            return "YAKUNLANGAN";
         }
         return cart.status.isEmpty() ? "HOLAT NOMA'LUM" : cart.status.toUpperCase(Locale.ROOT);
     }
@@ -1740,6 +2198,9 @@ public class WasytSellerActivity extends Activity {
         network.shutdownNow();
         if (historyDialog != null && historyDialog.isShowing()) {
             try { historyDialog.dismiss(); } catch (RuntimeException ignored) { }
+        }
+        if (mySalesDialog != null && mySalesDialog.isShowing()) {
+            try { mySalesDialog.dismiss(); } catch (RuntimeException ignored) { }
         }
         super.onDestroy();
     }
