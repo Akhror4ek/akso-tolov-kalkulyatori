@@ -31,9 +31,7 @@ final class WasytSellerApi {
     static final String WEB_ORIGIN = "https://app.wasyt.uz";
 
     // Current AKSO Store values captured from the connected seller workflow.
-    // Keep these in one place so the active warehouse/source can be changed safely.
     static final long DEFAULT_STOCK_ID = 487L;
-    static final long DEFAULT_CLIENT_SOURCE_ID = 8042L;
 
     private static final int CONNECT_TIMEOUT_MS = 15000;
     private static final int READ_TIMEOUT_MS = 25000;
@@ -55,6 +53,18 @@ final class WasytSellerApi {
         @Override public String toString() {
             return fullName + (phone.isEmpty() ? "" : " · " + phone);
         }
+    }
+
+    static final class ClientSource {
+        final long id;
+        final String name;
+
+        ClientSource(long id, String name) {
+            this.id = id;
+            this.name = safe(name);
+        }
+
+        @Override public String toString() { return name; }
     }
 
     static final class CartLine {
@@ -192,8 +202,50 @@ final class WasytSellerApi {
         return clients;
     }
 
+    /** Load every available "where did the client come from" tag from WASYT. */
+    static List<ClientSource> listClientSources(String token) throws IOException {
+        ArrayList<ClientSource> sources = new ArrayList<>();
+        int lastPage = 1;
+        for (int page = 1; page <= lastPage && page <= 100; page++) {
+            JSONObject response = request("GET",
+                    "/company/client/source?page-size=20&page=" + page, token, null);
+            JSONArray rows = response.optJSONArray("data");
+            if (rows == null) break;
+            for (int i = 0; i < rows.length(); i++) {
+                JSONObject row = rows.optJSONObject(i);
+                if (row == null || row.optBoolean("is_deleted", false)) continue;
+                long id = row.optLong("id", -1L);
+                String name = row.optString("name", "").trim();
+                if (id > 0 && !name.isEmpty()) sources.add(new ClientSource(id, name));
+            }
+            JSONObject meta = response.optJSONObject("meta");
+            if (meta == null) {
+                if (rows.length() < 20) break;
+            } else {
+                lastPage = Math.max(page, meta.optInt("last_page", page));
+            }
+            if (rows.length() == 0) break;
+        }
+        return sources;
+    }
+
+    /** Create a custom source tag when the connected WASYT account has permission. */
+    static ClientSource createClientSource(String token, String sourceName) throws IOException {
+        String name = safe(sourceName).trim();
+        if (name.isEmpty()) throw new IOException("Manba tegi nomini kiriting.");
+        if (name.length() > 100) throw new IOException("Manba tegi 100 belgidan oshmasin.");
+        LinkedHashMap<String, String> fields = new LinkedHashMap<>();
+        fields.put("name", name);
+        JSONObject response = request("POST", "/company/client/source", token, fields);
+        JSONObject data = unwrapObject(response);
+        long id = data.optLong("id", -1L);
+        String savedName = data.optString("name", name);
+        if (id <= 0) throw new IOException("WASYT yangi manba tegiga ID qaytarmadi.");
+        return new ClientSource(id, savedName);
+    }
+
     static Client createClient(String token, String fullName, String phone,
-                               String gender, String language) throws IOException {
+                               String gender, String language, long sourceId) throws IOException {
         String name = safe(fullName).trim();
         String normalizedPhone = digitsOnly(phone);
         if (name.length() < 2) throw new IOException("Mijoz F.I.Sh. kamida 2 ta belgidan iborat bo'lsin.");
@@ -203,7 +255,9 @@ final class WasytSellerApi {
         fields.put("full_name", name);
         fields.put("gender", "female".equalsIgnoreCase(gender) ? "female" : "male");
         fields.put("main_phone", normalizedPhone);
-        fields.put("source_id", String.valueOf(DEFAULT_CLIENT_SOURCE_ID));
+        // WASYT source_id is optional. Never assign a guessed/default source when
+        // the seller has not explicitly selected where this customer came from.
+        if (sourceId > 0) fields.put("source_id", String.valueOf(sourceId));
         fields.put("socials[telegram]", "");
         fields.put("socials[instagram]", "");
         fields.put("socials[facebook]", "");

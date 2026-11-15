@@ -714,6 +714,128 @@ public class WasytSellerActivity extends Activity {
         male.setOnClickListener(v -> { femaleSelected[0] = false; refreshGender.run(); });
         female.setOnClickListener(v -> { femaleSelected[0] = true; refreshGender.run(); });
 
+        TextView sourceTitle = label("MIJOZ QAYERDAN KELGAN?", 9, MUTED, true);
+        LinearLayout.LayoutParams sourceTitleParams = matchWidth(dp(25));
+        sourceTitleParams.topMargin = dp(11);
+        sheet.addView(sourceTitle, sourceTitleParams);
+
+        TextView sourceStatus = label("WASYT manba teglari yuklanmoqda…", 9, MUTED, false);
+        sourceStatus.setPadding(dp(2), dp(2), dp(2), dp(5));
+        sheet.addView(sourceStatus, matchWrap());
+
+        LinearLayout sourceOptions = new LinearLayout(this);
+        sourceOptions.setOrientation(LinearLayout.VERTICAL);
+        sheet.addView(sourceOptions, matchWidth(dp(112)));
+
+        final long[] selectedSourceId = {-1L};
+        final String[] selectedSourceName = {""};
+        final ArrayList<WasytSellerApi.ClientSource> clientSources = new ArrayList<>();
+        final ArrayList<TextView> sourceChips = new ArrayList<>();
+        final Runnable[] renderSourceChips = new Runnable[1];
+        renderSourceChips[0] = () -> {
+            sourceOptions.removeAllViews();
+            sourceChips.clear();
+            for (int i = 0; i < clientSources.size(); i += 2) {
+                LinearLayout sourceRow = new LinearLayout(this);
+                sourceRow.setOrientation(LinearLayout.HORIZONTAL);
+                LinearLayout.LayoutParams rowParams = matchWidth(dp(38));
+                if (i > 0) rowParams.topMargin = dp(5);
+                sourceOptions.addView(sourceRow, rowParams);
+
+                for (int j = i; j < Math.min(i + 2, clientSources.size()); j++) {
+                    final WasytSellerApi.ClientSource source = clientSources.get(j);
+                    final TextView chip = button(source.name,
+                            selectedSourceId[0] == source.id);
+                    chip.setTextSize(9);
+                    chip.setSingleLine(true);
+                    chip.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                    LinearLayout.LayoutParams chipParams =
+                            new LinearLayout.LayoutParams(0, dp(38), 1f);
+                    if (j > i) chipParams.leftMargin = dp(6);
+                    sourceRow.addView(chip, chipParams);
+                    sourceChips.add(chip);
+                    chip.setOnClickListener(v -> {
+                        selectedSourceId[0] = source.id;
+                        selectedSourceName[0] = source.name;
+                        renderSourceChips[0].run();
+                    });
+                }
+            }
+            if (clientSources.isEmpty()) {
+                sourceOptions.setVisibility(View.GONE);
+            } else {
+                sourceOptions.setVisibility(View.VISIBLE);
+            }
+            sourceStatus.setText(clientSources.isEmpty()
+                    ? "WASYT’da manba teglari topilmadi."
+                    : (selectedSourceId[0] > 0
+                    ? "Tanlangan manba: " + selectedSourceName[0]
+                    : "Bir manbani tanlang (ixtiyoriy)."));
+        };
+
+        TextView addSource = button("+ TEG QO‘SHISH", false);
+        LinearLayout.LayoutParams addSourceParams = matchWidth(dp(38));
+        addSourceParams.topMargin = dp(6);
+        sheet.addView(addSource, addSourceParams);
+        addSource.setOnClickListener(v -> {
+            EditText sourceNameInput = input("Masalan: YouTube reklamasi",
+                    InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+            new AlertDialog.Builder(this)
+                    .setTitle("Yangi manba tegi")
+                    .setView(sourceNameInput)
+                    .setNegativeButton("Bekor qilish", null)
+                    .setPositiveButton("Qo‘shish", (alert, which) -> {
+                        String newSourceName = sourceNameInput.getText().toString().trim();
+                        if (newSourceName.isEmpty()) {
+                            Toast.makeText(this, "Teg nomini kiriting.", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        String sourceToken = WasytSecureStore.getValidToken(this);
+                        runNetwork("Manba tegi qo‘shilmoqda…", () -> {
+                            WasytSellerApi.createClientSource(sourceToken, newSourceName);
+                            List<WasytSellerApi.ClientSource> refreshed =
+                                    WasytSellerApi.listClientSources(sourceToken);
+                            main.post(() -> {
+                                if (isFinishing() || isDestroyed() || !dialog.isShowing()) return;
+                                clientSources.clear();
+                                clientSources.addAll(refreshed);
+                                for (WasytSellerApi.ClientSource item : clientSources) {
+                                    if (item.name.equalsIgnoreCase(newSourceName)) {
+                                        selectedSourceId[0] = item.id;
+                                        selectedSourceName[0] = item.name;
+                                        break;
+                                    }
+                                }
+                                renderSourceChips[0].run();
+                                Toast.makeText(this, "Manba tegi qo‘shildi.",
+                                        Toast.LENGTH_SHORT).show();
+                            });
+                        });
+                    })
+                    .show();
+        });
+
+        // Load the real tag IDs and names from the connected WASYT account.
+        String sourceToken = WasytSecureStore.getValidToken(this);
+        network.execute(() -> {
+            try {
+                List<WasytSellerApi.ClientSource> loaded =
+                        WasytSellerApi.listClientSources(sourceToken);
+                main.post(() -> {
+                    if (isFinishing() || isDestroyed() || !dialog.isShowing()) return;
+                    clientSources.clear();
+                    clientSources.addAll(loaded);
+                    renderSourceChips[0].run();
+                });
+            } catch (Exception error) {
+                main.post(() -> {
+                    if (isFinishing() || isDestroyed() || !dialog.isShowing()) return;
+                    sourceOptions.setVisibility(View.GONE);
+                    sourceStatus.setText("Manba teglari yuklanmadi. Keyinroq qayta urinib ko‘ring.");
+                });
+            }
+        });
+
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams actionsParams = matchWidth(dp(46));
@@ -741,11 +863,12 @@ public class WasytSellerActivity extends Activity {
                 return;
             }
             String gender = femaleSelected[0] ? "female" : "male";
+            long sourceId = selectedSourceId[0];
             String token = WasytSecureStore.getValidToken(this);
             dialog.dismiss();
             runNetwork("Mijoz yaratilmoqda…", () -> {
                 WasytSellerApi.Client client = WasytSellerApi.createClient(
-                        token, fullName, mobile, gender, "uz");
+                        token, fullName, mobile, gender, "uz", sourceId);
                 main.post(() -> {
                     if (isFinishing() || isDestroyed()) return;
                     selectClient(client);
