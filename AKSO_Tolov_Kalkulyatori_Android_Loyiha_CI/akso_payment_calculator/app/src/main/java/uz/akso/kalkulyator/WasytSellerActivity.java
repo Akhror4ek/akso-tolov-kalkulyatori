@@ -723,9 +723,14 @@ public class WasytSellerActivity extends Activity {
         sourceStatus.setPadding(dp(2), dp(2), dp(2), dp(5));
         sheet.addView(sourceStatus, matchWrap());
 
+        ScrollView sourceScroll = new ScrollView(this);
+        sourceScroll.setVerticalScrollBarEnabled(false);
+        sourceScroll.setFillViewport(false);
         LinearLayout sourceOptions = new LinearLayout(this);
         sourceOptions.setOrientation(LinearLayout.VERTICAL);
-        sheet.addView(sourceOptions, matchWidth(dp(112)));
+        sourceScroll.addView(sourceOptions, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        sheet.addView(sourceScroll, matchWidth(dp(132)));
 
         final long[] selectedSourceId = {-1L};
         final String[] selectedSourceName = {""};
@@ -761,11 +766,7 @@ public class WasytSellerActivity extends Activity {
                     });
                 }
             }
-            if (clientSources.isEmpty()) {
-                sourceOptions.setVisibility(View.GONE);
-            } else {
-                sourceOptions.setVisibility(View.VISIBLE);
-            }
+            sourceScroll.setVisibility(clientSources.isEmpty() ? View.GONE : View.VISIBLE);
             sourceStatus.setText(clientSources.isEmpty()
                     ? "WASYT’da manba teglari topilmadi."
                     : (selectedSourceId[0] > 0
@@ -813,27 +814,6 @@ public class WasytSellerActivity extends Activity {
                         });
                     })
                     .show();
-        });
-
-        // Load the real tag IDs and names from the connected WASYT account.
-        String sourceToken = WasytSecureStore.getValidToken(this);
-        network.execute(() -> {
-            try {
-                List<WasytSellerApi.ClientSource> loaded =
-                        WasytSellerApi.listClientSources(sourceToken);
-                main.post(() -> {
-                    if (isFinishing() || isDestroyed() || !dialog.isShowing()) return;
-                    clientSources.clear();
-                    clientSources.addAll(loaded);
-                    renderSourceChips[0].run();
-                });
-            } catch (Exception error) {
-                main.post(() -> {
-                    if (isFinishing() || isDestroyed() || !dialog.isShowing()) return;
-                    sourceOptions.setVisibility(View.GONE);
-                    sourceStatus.setText("Manba teglari yuklanmadi. Keyinroq qayta urinib ko‘ring.");
-                });
-            }
         });
 
         LinearLayout actions = new LinearLayout(this);
@@ -890,6 +870,27 @@ public class WasytSellerActivity extends Activity {
             window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
                     | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
         }
+
+        // Start loading only after the form is visible so a fast response is not discarded.
+        String sourceToken = WasytSecureStore.getValidToken(this);
+        network.execute(() -> {
+            try {
+                List<WasytSellerApi.ClientSource> loaded =
+                        WasytSellerApi.listClientSources(sourceToken);
+                main.post(() -> {
+                    if (isFinishing() || isDestroyed() || !dialog.isShowing()) return;
+                    clientSources.clear();
+                    clientSources.addAll(loaded);
+                    renderSourceChips[0].run();
+                });
+            } catch (Exception error) {
+                main.post(() -> {
+                    if (isFinishing() || isDestroyed() || !dialog.isShowing()) return;
+                    sourceScroll.setVisibility(View.GONE);
+                    sourceStatus.setText("Manba teglari yuklanmadi. Keyinroq qayta urinib ko‘ring.");
+                });
+            }
+        });
     }
 
     private void confirmCheckout() {
