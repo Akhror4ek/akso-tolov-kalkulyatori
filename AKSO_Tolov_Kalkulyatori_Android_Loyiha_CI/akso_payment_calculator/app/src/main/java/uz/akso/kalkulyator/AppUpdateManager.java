@@ -46,6 +46,7 @@ final class AppUpdateManager {
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static boolean promptVisible = false;
+    private static boolean checkInProgress = false;
 
     private AppUpdateManager() { }
 
@@ -74,12 +75,12 @@ final class AppUpdateManager {
         long now = System.currentTimeMillis();
         long lastCheck = preferences.getLong(LAST_CHECK, 0L);
         if (now - lastCheck < CHECK_INTERVAL_MS) return;
-        if (preferences.getBoolean(CHECK_IN_PROGRESS, false)) return;
+        synchronized (AppUpdateManager.class) {
+            if (checkInProgress) return;
+            checkInProgress = true;
+        }
 
-        preferences.edit()
-                .putLong(LAST_CHECK, now)
-                .putBoolean(CHECK_IN_PROGRESS, true)
-                .apply();
+        preferences.edit().putLong(LAST_CHECK, now).apply();
 
         EXECUTOR.execute(() -> {
             Update update = null;
@@ -88,7 +89,9 @@ final class AppUpdateManager {
             } catch (Exception ignored) {
                 // Update checks are optional. Network/API errors must not block app startup.
             } finally {
-                preferences.edit().putBoolean(CHECK_IN_PROGRESS, false).apply();
+                synchronized (AppUpdateManager.class) {
+                    checkInProgress = false;
+                }
             }
 
             if (update == null) return;
