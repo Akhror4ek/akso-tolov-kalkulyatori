@@ -206,6 +206,12 @@ public class WasytSellerActivity extends Activity {
         searchButtons.addView(scan, scanParams);
         scan.setOnClickListener(v -> startBarcodeScan());
 
+        TextView categoriesButton = button("WASYT KATEGORIYALARINI TEKSHIRISH", false);
+        LinearLayout.LayoutParams categoriesParams = matchWidth(dp(40));
+        categoriesParams.topMargin = dp(8);
+        searchCard.addView(categoriesButton, categoriesParams);
+        categoriesButton.setOnClickListener(v -> showProductCategoryDiagnostic());
+
         resultsPanel = new LinearLayout(this);
         resultsPanel.setOrientation(LinearLayout.VERTICAL);
         addSpace(page, 8);
@@ -445,6 +451,59 @@ public class WasytSellerActivity extends Activity {
                 showStatus(found.size() + " ta mahsulot topildi.", LIGHT_GREEN);
             });
         });
+    }
+
+    /**
+     * Temporary diagnostic: fetch the real WASYT product category IDs and names
+     * through the connected seller session. This does not change any product or cart.
+     */
+    private void showProductCategoryDiagnostic() {
+        final String token = WasytSecureStore.getValidToken(this);
+        if (token == null) {
+            showError("WASYT akkaunti", "Akkauntga qayta kiring va yana urinib ko'ring.");
+            return;
+        }
+        runNetwork("WASYT kategoriyalari yuklanmoqda…", () -> {
+            final List<WasytSellerApi.ProductCategory> categories =
+                    WasytSellerApi.listProductCategories(token);
+            main.post(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                showProductCategoryList(categories);
+            });
+        });
+    }
+
+    private void showProductCategoryList(List<WasytSellerApi.ProductCategory> categories) {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.setPadding(dp(14), dp(8), dp(14), dp(8));
+
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        scroll.addView(list, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        list.addView(label("WASYT serveridan olingan haqiqiy kategoriya ro'yxati.",
+                10, MUTED, false), matchWrap());
+        addSpace(list, 8);
+
+        for (int i = 0; i < categories.size(); i++) {
+            WasytSellerApi.ProductCategory category = categories.get(i);
+            String line = category.name
+                    + "\\nID: " + category.id
+                    + (category.deleted ? "\\nHOLATI: O'CHIRILGAN" : "");
+            TextView item = label(line, 12, WHITE, true);
+            item.setPadding(dp(11), dp(9), dp(11), dp(9));
+            item.setBackground(rounded(0xFF183B2A, 0xFF112A1E, 12, 0x6685DFA9));
+            list.addView(item, matchWidth(ViewGroup.LayoutParams.WRAP_CONTENT));
+            if (i < categories.size() - 1) addSpace(list, 6);
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("WASYT kategoriyalari (" + categories.size() + ")")
+                .setView(scroll)
+                .setPositiveButton("YOPISH", null)
+                .show();
     }
 
     private void startBarcodeScan() {
