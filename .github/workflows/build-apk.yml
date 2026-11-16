@@ -4,6 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main, feature/wasyt-seller-workflow]
+  # Keep the stable CI signing key active so future APK updates stay installable.
+  schedule:
+    - cron: '17 2 */5 * *'
 
 permissions:
   contents: read
