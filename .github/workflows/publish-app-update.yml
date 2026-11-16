@@ -81,16 +81,21 @@ jobs:
           fi
 
           APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
+          APK_RELEASE_PATH="$RUNNER_TEMP/AKSO-Finance.apk"
           if [[ ! -f "$APK_PATH" ]]; then
             echo "Yig'ilgan APK topilmadi: $APK_PATH"
             exit 1
           fi
 
+          cp "$APK_PATH" "$APK_RELEASE_PATH"
+
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" "$APK_PATH#AKSO-Finance.apk" --clobber
+            # Remove the legacy asset name from earlier releases, if present.
+            gh release delete-asset "$TAG_NAME" "app-debug.apk" --yes >/dev/null 2>&1 || true
+            gh release upload "$TAG_NAME" "$APK_RELEASE_PATH" --clobber
             gh release edit "$TAG_NAME" --title "$RELEASE_TITLE" --notes "$NOTES" --latest
           else
-            gh release create "$TAG_NAME" "$APK_PATH#AKSO-Finance.apk" \
+            gh release create "$TAG_NAME" "$APK_RELEASE_PATH" \
               --title "$RELEASE_TITLE" \
               --notes "$NOTES" \
               --latest \
