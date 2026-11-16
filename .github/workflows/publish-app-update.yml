@@ -2,6 +2,9 @@ name: Publish AKSO Finance Update
 
 on:
   create:
+  push:
+    branches:
+      - 'release/**'
   workflow_dispatch:
     inputs:
       release_notes:
@@ -15,7 +18,7 @@ permissions:
 
 jobs:
   publish:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'create' && startsWith(github.ref, 'refs/heads/release/')) }}
+    if: ${{ github.event_name == 'workflow_dispatch' || ((github.event_name == 'create' || github.event_name == 'push') && startsWith(github.ref, 'refs/heads/release/')) }}
     runs-on: ubuntu-latest
 
     steps:
