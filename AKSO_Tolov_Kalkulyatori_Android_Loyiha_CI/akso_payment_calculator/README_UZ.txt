@@ -75,15 +75,23 @@ Sotuvchining yangilash tartibi:
 
 YANGI VERSIYANI SOTUVCHILARGA TARQATISH
 --------------------------------------
-1. app/build.gradle ichidagi versionCode qiymatini har bir yangi release'da
-   1 taga oshiring. versionName qiymatini ham yangilang.
+1. app/build.gradle ichidagi versionCode qiymatini avvalgisidan 1 taga oshiring.
+   versionName qiymatini ham yangilang.
    Misol: versionCode 3, versionName '1.2'.
 2. O'zgarishlarni feature/wasyt-seller-workflow branchiga yuboring.
 3. GitHub > Actions > "Publish AKSO Finance Update" jarayonini tanlang.
-4. "Run workflow" tugmasida aynan feature/wasyt-seller-workflow branchini tanlang.
-5. Sotuvchilarga ko'rinadigan release izohini yozib, jarayonni ishga tushiring.
-6. Jarayon APK'ni GitHub Releases'ga AKSO-Finance.apk nomi bilan joylaydi.
-   Ilovaning o'zi yangi release'ni topadi va sotuvchilarga yangilanishni bildiradi.
+4. "Run workflow" tugmasini bosing.
+5. source_branch maydonida "feature/wasyt-seller-workflow" ni tanlang.
+6. release_notes maydoniga yangilanishlar ro'yxatini yozing.
+7. "Run workflow" bilan tasdiqlang. Jarayon APK'ni yig'adi va GitHub Releases'ga
+   AKSO-Finance.apk nomi bilan joylaydi. Sotuvchilarning ilovasi yangilanishni
+   topib, "YANGILANISH MAVJUD" oynasini ko'rsatadi.
+
+Muqobil avtomatik usul:
+- release/v3 kabi yangi release branch yarating.
+- Branchga kamida bitta commit/push yuboring.
+- "Publish AKSO Finance Update" workflow'i push hodisasida o'zi ishga tushadi.
+- Release tag'i versionCode qiymatidan olinadi (masalan, versionCode 3 => v3).
 
 MUHIM:
 - Dastlabki avtomatik yangilashni ishga tushiruvchi APKni sotuvchilarga bir marta
