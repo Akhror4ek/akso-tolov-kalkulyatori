@@ -67,6 +67,18 @@ final class WasytSellerApi {
         @Override public String toString() { return name; }
     }
 
+    static final class ProductCategory {
+        final long id;
+        final String name;
+        final boolean deleted;
+
+        ProductCategory(long id, String name, boolean deleted) {
+            this.id = id;
+            this.name = safe(name);
+            this.deleted = deleted;
+        }
+    }
+
     static final class CartLine {
         final long productId;
         final int quantity;
@@ -177,6 +189,46 @@ final class WasytSellerApi {
             this.reserved = reserved;
             this.products = products;
         }
+    }
+
+    /**
+     * Reads the seller-visible product category reference list.
+     * WASYT returns the category ID and display value; family categories belonging
+     * to another company are labelled with that company name in parentheses.
+     */
+    static List<ProductCategory> listProductCategories(String token) throws IOException {
+        ArrayList<ProductCategory> categories = new ArrayList<>();
+        int page = 1;
+        int lastPage = 1;
+
+        do {
+            String path = "/common/public/records/product_category_list?page="
+                    + page + "&page-size=20";
+            JSONObject response = request("GET", path, token, null);
+            JSONArray rows = response.optJSONArray("data");
+            if (rows == null) {
+                throw new IOException("WASYT kategoriya javobida 'data' ro'yxati topilmadi.");
+            }
+
+            for (int i = 0; i < rows.length(); i++) {
+                JSONObject row = rows.optJSONObject(i);
+                if (row == null) continue;
+                long id = row.optLong("id", -1L);
+                String name = nullableText(row, "value");
+                if (id <= 0 || name.isEmpty()) continue;
+                categories.add(new ProductCategory(
+                        id, name, row.optBoolean("is_deleted", false)));
+            }
+
+            JSONObject meta = response.optJSONObject("meta");
+            lastPage = meta == null ? page : Math.max(page, meta.optInt("last_page", page));
+            page++;
+        } while (page <= lastPage && page <= 50);
+
+        if (categories.isEmpty()) {
+            throw new IOException("WASYT akkauntida ko'rinadigan mahsulot kategoriyalari topilmadi.");
+        }
+        return categories;
     }
 
     static List<Client> searchClients(String token, String query) throws IOException {
