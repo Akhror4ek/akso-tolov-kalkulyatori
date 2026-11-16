@@ -57,15 +57,17 @@ final class WasytBarcodeScanner {
         final long priceAmount;
         final String currency;
         final String stockQuantity;
+        final long categoryId;
 
         ProductInfo(long id, String name, String barcode, long priceAmount,
-                    String currency, String stockQuantity) {
+                    String currency, String stockQuantity, long categoryId) {
             this.id = id;
             this.name = name;
             this.barcode = barcode;
             this.priceAmount = priceAmount;
             this.currency = currency == null ? "" : currency.trim().toLowerCase(Locale.ROOT);
             this.stockQuantity = stockQuantity;
+            this.categoryId = categoryId;
         }
 
         boolean hasPrice() { return priceAmount > 0; }
@@ -278,9 +280,10 @@ final class WasytBarcodeScanner {
 
             PriceValue price = extractSalePrice(row);
             String stockQuantity = extractAvailableQuantity(row);
+            long categoryId = extractCategoryId(row);
 
             ProductInfo candidate = new ProductInfo(productId, name, barcode,
-                    price.amount, price.currency, stockQuantity);
+                    price.amount, price.currency, stockQuantity, categoryId);
             ProductInfo existing = products.get(productId);
             if (existing == null || (!existing.hasPrice() && candidate.hasPrice())) {
                 products.put(productId, candidate);
@@ -306,6 +309,31 @@ final class WasytBarcodeScanner {
             }
         }
         return null;
+    }
+
+    /** Reads the product's category ID from the WASYT catalogue record when present. */
+    private static long extractCategoryId(JSONObject row) {
+        if (row == null) return -1L;
+        long categoryId = row.optLong("category_id", -1L);
+        if (categoryId > 0) return categoryId;
+
+        JSONObject category = row.optJSONObject("category");
+        if (category != null) {
+            categoryId = category.optLong("id", -1L);
+            if (categoryId > 0) return categoryId;
+        }
+
+        JSONObject nestedProduct = row.optJSONObject("product");
+        if (nestedProduct != null) {
+            categoryId = nestedProduct.optLong("category_id", -1L);
+            if (categoryId > 0) return categoryId;
+            JSONObject nestedCategory = nestedProduct.optJSONObject("category");
+            if (nestedCategory != null) {
+                categoryId = nestedCategory.optLong("id", -1L);
+                if (categoryId > 0) return categoryId;
+            }
+        }
+        return -1L;
     }
 
     /** Uses the stock quantity less already reserved units, as returned by WASYT. */
