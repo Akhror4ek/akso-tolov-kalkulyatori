@@ -59,3 +59,37 @@ Ushbu chat ish muhitida Android SDK/Gradle o‘rnatilmagan va tashqi yuklab olis
 manbalariga ulanish mavjud emas. Shu sabab bu yerda APK binar faylini hozir
 kompilyatsiya qilishning imkoni bo‘lmadi. GitHub Actions fayli esa loyihani
 GitHub serverida Android SDK bilan yig‘ish uchun qo‘shildi.
+
+ILOVANI AVTOMATIK YANGILASH
+--------------------------
+Ilovada GitHub Releases orqali yangilanish tekshiruvi mavjud. Ilova ishga
+tushganda internet orqali eng so'nggi ommaviy AKSO Finance release tekshiriladi.
+Yangi versiya topilsa, "YANGILANISH MAVJUD" oynasi chiqadi.
+
+Sotuvchining yangilash tartibi:
+1. "HOZIR YANGILASH" tugmasini bosing.
+2. APK yuklab olinadi. Yuklab olish tugagach, Android bildirishnomasini bosing.
+3. Birinchi yangilashda Android "Ushbu manbadan ruxsat berish"ni so'rashi mumkin.
+   AKSO Finance uchun shu ruxsatni yoqing.
+4. Android ko'rsatgan o'rnatish oynasida "Yangilash"ni bosing.
+
+YANGI VERSIYANI SOTUVCHILARGA TARQATISH
+--------------------------------------
+1. app/build.gradle ichidagi versionCode qiymatini har bir yangi release'da
+   1 taga oshiring. versionName qiymatini ham yangilang.
+   Misol: versionCode 3, versionName '1.2'.
+2. O'zgarishlarni feature/wasyt-seller-workflow branchiga yuboring.
+3. GitHub > Actions > "Publish AKSO Finance Update" jarayonini tanlang.
+4. "Run workflow" tugmasida aynan feature/wasyt-seller-workflow branchini tanlang.
+5. Sotuvchilarga ko'rinadigan release izohini yozib, jarayonni ishga tushiring.
+6. Jarayon APK'ni GitHub Releases'ga AKSO-Finance.apk nomi bilan joylaydi.
+   Ilovaning o'zi yangi release'ni topadi va sotuvchilarga yangilanishni bildiradi.
+
+MUHIM:
+- Dastlabki avtomatik yangilashni ishga tushiruvchi APKni sotuvchilarga bir marta
+  qo'lda o'rnatish kerak. Shundan keyingi versiyalar ilova ichidan olinadi.
+- Har bir yangilanish versionCode bo'yicha yuqoriroq bo'lishi shart.
+- Release APK bir xil CI imzolash kaliti bilan yig'ilishi kerak. Publish workflow
+  build-apk.yml bilan bir xil saqlangan CI debug imzolash kalitidan foydalanadi.
+- Android xavfsizlik siyosati bo'yicha ilova APKni avtomatik, tasdiqsiz o'rnata
+  olmaydi. Yuklab olingan faylni sotuvchi Android o'rnatish oynasida tasdiqlaydi.
