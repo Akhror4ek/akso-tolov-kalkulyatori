@@ -490,8 +490,8 @@ public class WasytSellerActivity extends Activity {
         for (int i = 0; i < categories.size(); i++) {
             WasytSellerApi.ProductCategory category = categories.get(i);
             String line = category.name
-                    + "\\nID: " + category.id
-                    + (category.deleted ? "\\nHOLATI: O'CHIRILGAN" : "");
+                    + "\nID: " + category.id
+                    + (category.deleted ? "\nHOLATI: O'CHIRILGAN" : "");
             TextView item = label(line, 12, WHITE, true);
             item.setPadding(dp(11), dp(9), dp(11), dp(9));
             item.setBackground(rounded(0xFF183B2A, 0xFF112A1E, 12, 0x6685DFA9));
