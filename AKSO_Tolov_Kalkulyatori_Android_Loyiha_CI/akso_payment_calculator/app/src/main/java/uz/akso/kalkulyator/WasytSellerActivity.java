@@ -56,6 +56,8 @@ public class WasytSellerActivity extends Activity {
     private static final int WHITE = 0xFFF1F8F3;
     private static final int MUTED = 0xFFB4C8BA;
     private static final int RED = 0xFFE36A65;
+    private static final long METRAJ_GILAM_CATEGORY_ID = 73010L;
+    private static final int MAX_QUANTITY_DECIMAL_PLACES = 8;
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService network = Executors.newSingleThreadExecutor();
@@ -116,10 +118,18 @@ public class WasytSellerActivity extends Activity {
 
     private static final class CartItem {
         final WasytBarcodeScanner.ProductInfo product;
-        int quantity;
-        CartItem(WasytBarcodeScanner.ProductInfo product) {
+        final long categoryId;
+        BigDecimal quantity;
+        boolean quantityInputValid = true;
+
+        CartItem(WasytBarcodeScanner.ProductInfo product, long categoryId) {
             this.product = product;
-            this.quantity = 1;
+            this.categoryId = categoryId;
+            this.quantity = BigDecimal.ONE;
+        }
+
+        boolean allowsFractionalQuantity() {
+            return categoryId == METRAJ_GILAM_CATEGORY_ID;
         }
     }
 
@@ -205,12 +215,6 @@ public class WasytSellerActivity extends Activity {
         scanParams.leftMargin = dp(8);
         searchButtons.addView(scan, scanParams);
         scan.setOnClickListener(v -> startBarcodeScan());
-
-        TextView categoriesButton = button("WASYT KATEGORIYALARINI TEKSHIRISH", false);
-        LinearLayout.LayoutParams categoriesParams = matchWidth(dp(40));
-        categoriesParams.topMargin = dp(8);
-        searchCard.addView(categoriesButton, categoriesParams);
-        categoriesButton.setOnClickListener(v -> showProductCategoryDiagnostic());
 
         resultsPanel = new LinearLayout(this);
         resultsPanel.setOrientation(LinearLayout.VERTICAL);
@@ -453,59 +457,6 @@ public class WasytSellerActivity extends Activity {
         });
     }
 
-    /**
-     * Temporary diagnostic: fetch the real WASYT product category IDs and names
-     * through the connected seller session. This does not change any product or cart.
-     */
-    private void showProductCategoryDiagnostic() {
-        final String token = WasytSecureStore.getValidToken(this);
-        if (token == null) {
-            showError("WASYT akkaunti", "Akkauntga qayta kiring va yana urinib ko'ring.");
-            return;
-        }
-        runNetwork("WASYT kategoriyalari yuklanmoqda…", () -> {
-            final List<WasytSellerApi.ProductCategory> categories =
-                    WasytSellerApi.listProductCategories(token);
-            main.post(() -> {
-                if (isFinishing() || isDestroyed()) return;
-                showProductCategoryList(categories);
-            });
-        });
-    }
-
-    private void showProductCategoryList(List<WasytSellerApi.ProductCategory> categories) {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(false);
-        scroll.setPadding(dp(14), dp(8), dp(14), dp(8));
-
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        scroll.addView(list, new ScrollView.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        list.addView(label("WASYT serveridan olingan haqiqiy kategoriya ro'yxati.",
-                10, MUTED, false), matchWrap());
-        addSpace(list, 8);
-
-        for (int i = 0; i < categories.size(); i++) {
-            WasytSellerApi.ProductCategory category = categories.get(i);
-            String line = category.name
-                    + "\nID: " + category.id
-                    + (category.deleted ? "\nHOLATI: O'CHIRILGAN" : "");
-            TextView item = label(line, 12, WHITE, true);
-            item.setPadding(dp(11), dp(9), dp(11), dp(9));
-            item.setBackground(rounded(0xFF183B2A, 0xFF112A1E, 12, 0x6685DFA9));
-            list.addView(item, matchWidth(ViewGroup.LayoutParams.WRAP_CONTENT));
-            if (i < categories.size() - 1) addSpace(list, 6);
-        }
-
-        new AlertDialog.Builder(this)
-                .setTitle("WASYT kategoriyalari (" + categories.size() + ")")
-                .setView(scroll)
-                .setPositiveButton("YOPISH", null)
-                .show();
-    }
-
     private void startBarcodeScan() {
         WasytBarcodeScanner.start(this, new WasytBarcodeScanner.Listener() {
             @Override public void onScanStarted() {
@@ -612,17 +563,44 @@ public class WasytSellerActivity extends Activity {
             showError("Mahsulot narxi", "Mahsulotning UZS sotuv narxi ko'rsatilmagan. Uni savatga qo'shib bo'lmaydi.");
             return;
         }
+
+        if (product.categoryId > 0) {
+            addToCartWithCategory(product, product.categoryId);
+            return;
+        }
+
+        final String token = WasytSecureStore.getValidToken(this);
+        runNetwork("Mahsulot kategoriyasi WASYT'dan tekshirilmoqda…", () -> {
+            long categoryId = WasytSellerApi.getProductCategoryId(token, product.id);
+            if (categoryId <= 0) {
+                throw new java.io.IOException("WASYT mahsulot kategoriyasini qaytarmadi. "
+                        + "Kasrli miqdor yoqilmadi; qayta urinib ko'ring.");
+            }
+            main.post(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                addToCartWithCategory(product, categoryId);
+            });
+        });
+    }
+
+    private void addToCartWithCategory(WasytBarcodeScanner.ProductInfo product,
+                                       long categoryId) {
         for (CartItem item : cartItems) {
             if (item.product.id == product.id) {
-                item.quantity++;
+                item.quantity = item.quantity.add(BigDecimal.ONE);
+                item.quantityInputValid = true;
                 renderCart();
                 showStatus("Mahsulot miqdori oshirildi.", LIGHT_GREEN);
                 return;
             }
         }
-        cartItems.add(new CartItem(product));
+        cartItems.add(new CartItem(product, categoryId));
         renderCart();
-        showStatus("Mahsulot savatga qo'shildi.", LIGHT_GREEN);
+        if (categoryId == METRAJ_GILAM_CATEGORY_ID) {
+            showStatus("Metraj gilam aniqlandi. Kasrli miqdor kiritish mumkin.", LIGHT_GREEN);
+        } else {
+            showStatus("Mahsulot savatga qo'shildi.", LIGHT_GREEN);
+        }
     }
 
     private void renderCart() {
@@ -650,26 +628,76 @@ public class WasytSellerActivity extends Activity {
             row.addView(details, new LinearLayout.LayoutParams(0,
                     ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
             details.addView(label(item.product.name, 11, WHITE, true), matchWrap());
-            details.addView(label(formatMoney(item.product.priceAmount) + " × "
-                    + item.quantity + " = "
-                    + formatMoney(safeMultiply(item.product.priceAmount, item.quantity))
-                    + " so'm", 10, LIGHT_GREEN, true), matchWrap());
+            TextView lineAmount = label(cartLineSummary(item), 10, LIGHT_GREEN, true);
+            details.addView(lineAmount, matchWrap());
 
             TextView minus = button("−", false);
             row.addView(minus, new LinearLayout.LayoutParams(dp(36), dp(36)));
             minus.setOnClickListener(v -> {
-                if (item.quantity > 1) item.quantity--;
-                else cartItems.remove(item);
+                if (item.quantity.compareTo(BigDecimal.ONE) > 0) {
+                    item.quantity = item.quantity.subtract(BigDecimal.ONE).stripTrailingZeros();
+                    item.quantityInputValid = true;
+                } else {
+                    cartItems.remove(item);
+                }
                 renderCart();
             });
-            TextView quantity = label(String.valueOf(item.quantity), 13, WHITE, true);
-            quantity.setGravity(Gravity.CENTER);
-            row.addView(quantity, new LinearLayout.LayoutParams(dp(30), dp(36)));
+
+            if (item.allowsFractionalQuantity()) {
+                EditText quantityInput = input("Miqdor",
+                        InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+                quantityInput.setTextSize(12);
+                quantityInput.setGravity(Gravity.CENTER);
+                quantityInput.setSelectAllOnFocus(true);
+                quantityInput.setContentDescription("Metraj gilam miqdori");
+                quantityInput.setText(formatQuantity(item.quantity));
+                row.addView(quantityInput, new LinearLayout.LayoutParams(dp(62), dp(36)));
+
+                quantityInput.addTextChangedListener(new android.text.TextWatcher() {
+                    @Override public void beforeTextChanged(CharSequence text, int start,
+                                                            int count, int after) { }
+
+                    @Override public void onTextChanged(CharSequence text, int start,
+                                                        int before, int count) {
+                        BigDecimal parsed = parseQuantityInput(text.toString());
+                        if (isValidQuantity(parsed, true)) {
+                            item.quantity = parsed.stripTrailingZeros();
+                            item.quantityInputValid = true;
+                            lineAmount.setText(cartLineSummary(item));
+                            updateTotal();
+                        } else {
+                            item.quantityInputValid = false;
+                        }
+                    }
+
+                    @Override public void afterTextChanged(android.text.Editable editable) { }
+                });
+                quantityInput.setOnFocusChangeListener((view, hasFocus) -> {
+                    if (!hasFocus) {
+                        if (!item.quantityInputValid) {
+                            item.quantityInputValid = true;
+                            quantityInput.setText(formatQuantity(item.quantity));
+                            showStatus("Metraj gilam miqdorini 0 dan katta, ko'pi bilan 8 kasr xona bilan kiriting.",
+                                    RED);
+                        } else {
+                            quantityInput.setText(formatQuantity(item.quantity));
+                        }
+                    }
+                });
+            } else {
+                TextView quantity = label(formatQuantity(item.quantity), 13, WHITE, true);
+                quantity.setGravity(Gravity.CENTER);
+                row.addView(quantity, new LinearLayout.LayoutParams(dp(30), dp(36)));
+            }
+
             TextView plus = button("+", false);
             row.addView(plus, new LinearLayout.LayoutParams(dp(36), dp(36)));
             plus.setOnClickListener(v -> {
-                if (item.quantity < 999) item.quantity++;
-                renderCart();
+                if (item.quantity.compareTo(BigDecimal.valueOf(999)) < 0) {
+                    item.quantity = item.quantity.add(BigDecimal.ONE);
+                    item.quantityInputValid = true;
+                    renderCart();
+                }
             });
         }
         TextView clear = button("SAVATNI TOZALASH", false);
@@ -953,6 +981,11 @@ public class WasytSellerActivity extends Activity {
     }
 
     private void confirmCheckout() {
+        String quantityError = validateCartQuantities();
+        if (quantityError != null) {
+            showStatus(quantityError, RED);
+            return;
+        }
         if (cartItems.isEmpty()) {
             showStatus("Savat bo'sh.", RED);
             return;
@@ -979,6 +1012,11 @@ public class WasytSellerActivity extends Activity {
     }
 
     private void checkout() {
+        String quantityError = validateCartQuantities();
+        if (quantityError != null) {
+            showStatus(quantityError, RED);
+            return;
+        }
         final String token = WasytSecureStore.getValidToken(this);
         final long companyId = WasytSecureStore.getCompanyId(this);
         final long stockId = WasytSellerApi.DEFAULT_STOCK_ID;
@@ -1892,7 +1930,7 @@ public class WasytSellerActivity extends Activity {
                 line.setPadding(0, dp(5), 0, dp(5));
                 products.addView(line, matchWrap());
                 line.addView(label(product.name, 10, WHITE, true), matchWrap());
-                String meta = product.quantity + " " + product.unit + " × "
+                String meta = formatQuantity(product.quantity) + " " + product.unit + " × "
                         + formatMoney(product.price) + " so'm";
                 if (!product.barcode.isEmpty()) meta += "  ·  " + product.barcode;
                 line.addView(label(meta, 9, MUTED, false), matchWrap());
@@ -2120,6 +2158,50 @@ public class WasytSellerActivity extends Activity {
         return value.setScale(0, RoundingMode.HALF_UP).longValueExact();
     }
 
+    private static String formatQuantity(BigDecimal value) {
+        if (value == null) return "0";
+        return value.stripTrailingZeros().toPlainString();
+    }
+
+    private static BigDecimal parseQuantityInput(String raw) {
+        if (raw == null) return null;
+        String value = raw.trim().replace(" ", "").replace(",", ".");
+        if (value.isEmpty() || ".".equals(value)) return null;
+        try {
+            return new BigDecimal(value);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private static boolean isValidQuantity(BigDecimal value, boolean allowFractional) {
+        if (value == null || value.signum() <= 0) return false;
+        BigDecimal normalized = value.stripTrailingZeros();
+        if (normalized.scale() > MAX_QUANTITY_DECIMAL_PLACES) return false;
+        return allowFractional || normalized.scale() <= 0;
+    }
+
+    private String cartLineSummary(CartItem item) {
+        long lineTotal = safeMultiply(item.product.priceAmount, item.quantity);
+        return formatMoney(item.product.priceAmount) + " × "
+                + formatQuantity(item.quantity) + " = "
+                + formatMoney(lineTotal) + " so'm";
+    }
+
+    private String validateCartQuantities() {
+        for (CartItem item : cartItems) {
+            if (!item.quantityInputValid) {
+                return "Metraj gilam miqdori noto'g'ri. Miqdorni tekshiring.";
+            }
+            if (!isValidQuantity(item.quantity, item.allowsFractionalQuantity())) {
+                return item.allowsFractionalQuantity()
+                        ? "Metraj gilam miqdori 0 dan katta va 8 kasr xonagacha bo'lishi kerak."
+                        : "Bu mahsulot uchun faqat butun miqdor kiritish mumkin.";
+            }
+        }
+        return null;
+    }
+
     private long calculateSubtotal() {
         long sum = 0L;
         for (CartItem item : cartItems) {
@@ -2203,9 +2285,13 @@ public class WasytSellerActivity extends Activity {
         return String.format(Locale.US, "%,d", Math.max(0L, value)).replace(',', ' ');
     }
 
-    private static long safeMultiply(long a, long b) {
-        try { return Math.multiplyExact(a, b); }
-        catch (ArithmeticException ignored) { return Long.MAX_VALUE; }
+    private static long safeMultiply(long unitPrice, BigDecimal quantity) {
+        try {
+            return BigDecimal.valueOf(unitPrice).multiply(quantity)
+                    .setScale(0, RoundingMode.HALF_UP).longValueExact();
+        } catch (ArithmeticException ignored) {
+            return Long.MAX_VALUE;
+        }
     }
 
     private static long safeAdd(long a, long b) {
