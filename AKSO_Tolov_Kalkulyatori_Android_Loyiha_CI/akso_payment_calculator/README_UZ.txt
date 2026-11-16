@@ -93,3 +93,11 @@ MUHIM:
   build-apk.yml bilan bir xil saqlangan CI debug imzolash kalitidan foydalanadi.
 - Android xavfsizlik siyosati bo'yicha ilova APKni avtomatik, tasdiqsiz o'rnata
   olmaydi. Yuklab olingan faylni sotuvchi Android o'rnatish oynasida tasdiqlaydi.
+
+BIR MARTALIK GITHUB SOZLAMASI
+-----------------------------
+Birinchi release'ni GitHub Actions orqali yaratishdan oldin:
+1. Repozitoriyada Settings > Actions > General bo'limini oching.
+2. Workflow permissions qismida "Read and write permissions"ni tanlang.
+3. Save tugmasini bosing.
+Bu ruxsat GitHub Actions'ga GitHub Release yaratish va APK biriktirish uchun kerak.
