@@ -71,6 +71,12 @@ public class GoogleAccountActivity extends Activity {
         }
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        AppUpdateManager.checkForUpdate(this);
+    }
+
     private void showLogin(String message) {
         if (statusRefresh != null) {
             handler.removeCallbacks(statusRefresh);
