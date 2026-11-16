@@ -20,6 +20,7 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.concurrent.ExecutorService;
@@ -37,7 +38,6 @@ final class AppUpdateManager {
     private static final String APK_MIME_TYPE = "application/vnd.android.package-archive";
     private static final String PREFS = "akso_app_updates";
     private static final String LAST_CHECK = "last_check_at";
-    private static final String CHECK_IN_PROGRESS = "check_in_progress";
     private static final long CHECK_INTERVAL_MS = 4L * 60L * 60L * 1000L;
     private static final int CONNECT_TIMEOUT_MS = 10000;
     private static final int READ_TIMEOUT_MS = 15000;
@@ -87,7 +87,8 @@ final class AppUpdateManager {
             try {
                 update = fetchLatestRelease();
             } catch (Exception ignored) {
-                // Update checks are optional. Network/API errors must not block app startup.
+                // Retry at the next app opening if the network or GitHub API is unavailable.
+                preferences.edit().putLong(LAST_CHECK, 0L).apply();
             } finally {
                 synchronized (AppUpdateManager.class) {
                     checkInProgress = false;
@@ -119,7 +120,9 @@ final class AppUpdateManager {
 
             int status = connection.getResponseCode();
             if (status == 404) return null; // No public app release has been published yet.
-            if (status != HttpURLConnection.HTTP_OK) return null;
+            if (status != HttpURLConnection.HTTP_OK) {
+                throw new IOException("GitHub release tekshiruvi HTTP " + status + " qaytardi.");
+            }
 
             String body = readLimited(connection.getInputStream());
             JSONObject release = new JSONObject(body);
