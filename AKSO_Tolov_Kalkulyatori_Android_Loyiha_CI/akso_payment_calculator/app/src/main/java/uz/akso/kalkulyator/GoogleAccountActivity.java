@@ -108,6 +108,7 @@ public class GoogleAccountActivity extends Activity {
 
         root.addView(card, centeredCardParams());
         setContentView(root);
+        AppUpdateManager.checkForUpdate(this);
     }
 
     private void beginGoogleSignIn() {
@@ -260,6 +261,7 @@ public class GoogleAccountActivity extends Activity {
 
         root.addView(card, centeredCardParams());
         setContentView(root);
+        AppUpdateManager.checkForUpdate(this);
 
         statusRefresh = new Runnable() {
             @Override
