@@ -140,7 +140,11 @@ final class AppUpdateManager {
             for (int i = 0; i < assets.length(); i++) {
                 JSONObject asset = assets.optJSONObject(i);
                 if (asset == null) continue;
-                if (APK_ASSET_NAME.equals(asset.optString("name", ""))) {
+                String assetName = asset.optString("name", "").trim();
+                String assetLabel = asset.optString("label", "").trim();
+                if (APK_ASSET_NAME.equals(assetName)
+                        || APK_ASSET_NAME.equals(assetLabel)
+                        || "app-debug.apk".equalsIgnoreCase(assetName)) {
                     apkUrl = asset.optString("browser_download_url", "").trim();
                     break;
                 }
@@ -175,7 +179,7 @@ final class AppUpdateManager {
         return "https".equalsIgnoreCase(uri.getScheme())
                 && "github.com".equalsIgnoreCase(uri.getHost())
                 && path.startsWith("/" + REPOSITORY + "/releases/download/")
-                && path.endsWith("/" + APK_ASSET_NAME);
+                && path.toLowerCase(java.util.Locale.ROOT).endsWith(".apk");
     }
 
     private static long getInstalledVersionCode(Context context) {
