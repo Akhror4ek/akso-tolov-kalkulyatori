@@ -4016,6 +4016,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        AppUpdateManager.checkForUpdate(this);
         if (isDailySalesDialogVisible() && WasytSecureStore.getValidToken(this) != null
                 && salesSourceStatus != null
                 && salesSourceStatus.getText().toString().contains("akkaunti ulanmagan")) {
