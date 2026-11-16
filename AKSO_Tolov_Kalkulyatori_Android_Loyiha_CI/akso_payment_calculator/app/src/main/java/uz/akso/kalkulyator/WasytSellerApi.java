@@ -67,30 +67,32 @@ final class WasytSellerApi {
         @Override public String toString() { return name; }
     }
 
-    static final class ProductCategory {
-        final long id;
-        final String name;
-        final boolean deleted;
-
-        ProductCategory(long id, String name, boolean deleted) {
-            this.id = id;
-            this.name = safe(name);
-            this.deleted = deleted;
-        }
-    }
-
     static final class CartLine {
         final long productId;
-        final int quantity;
+        final BigDecimal quantity;
         final long unitAmount;
 
         CartLine(long productId, int quantity, long unitAmount) {
+            this(productId, BigDecimal.valueOf(quantity), unitAmount);
+        }
+
+        CartLine(long productId, BigDecimal quantity, long unitAmount) {
             if (productId <= 0) throw new IllegalArgumentException("Mahsulot ID noto'g'ri.");
-            if (quantity < 1) throw new IllegalArgumentException("Mahsulot miqdori kamida 1 bo'lishi kerak.");
+            if (quantity == null || quantity.signum() <= 0) {
+                throw new IllegalArgumentException("Mahsulot miqdori noldan katta bo'lishi kerak.");
+            }
+            BigDecimal normalized = quantity.stripTrailingZeros();
+            if (normalized.scale() > 8) {
+                throw new IllegalArgumentException("Mahsulot miqdori verguldan keyin 8 tagacha raqam bo'lishi mumkin.");
+            }
             if (unitAmount < 0) throw new IllegalArgumentException("Mahsulot narxi manfiy bo'lishi mumkin emas.");
             this.productId = productId;
-            this.quantity = quantity;
+            this.quantity = normalized;
             this.unitAmount = unitAmount;
+        }
+
+        String quantityValue() {
+            return quantity.stripTrailingZeros().toPlainString();
         }
     }
 
@@ -159,12 +161,12 @@ final class WasytSellerApi {
         final long id;
         final String name;
         final String barcode;
-        final int quantity;
+        final BigDecimal quantity;
         final long price;
         final long discount;
         final String unit;
 
-        CartProduct(long id, String name, String barcode, int quantity,
+        CartProduct(long id, String name, String barcode, BigDecimal quantity,
                     long price, long discount, String unit) {
             this.id = id;
             this.name = safe(name);
@@ -192,43 +194,22 @@ final class WasytSellerApi {
     }
 
     /**
-     * Reads the seller-visible product category reference list.
-     * WASYT returns the category ID and display value; family categories belonging
-     * to another company are labelled with that company name in parentheses.
+     * Returns the category ID from the authoritative WASYT product card.
+     * Product responses expose category_id even when no translated category
+     * relation is requested.
      */
-    static List<ProductCategory> listProductCategories(String token) throws IOException {
-        ArrayList<ProductCategory> categories = new ArrayList<>();
-        int page = 1;
-        int lastPage = 1;
-
-        do {
-            String path = "/common/public/records/product_category_list?page="
-                    + page + "&page-size=20";
-            JSONObject response = request("GET", path, token, null);
-            JSONArray rows = response.optJSONArray("data");
-            if (rows == null) {
-                throw new IOException("WASYT kategoriya javobida 'data' ro'yxati topilmadi.");
-            }
-
-            for (int i = 0; i < rows.length(); i++) {
-                JSONObject row = rows.optJSONObject(i);
-                if (row == null) continue;
-                long id = row.optLong("id", -1L);
-                String name = nullableText(row, "value");
-                if (id <= 0 || name.isEmpty()) continue;
-                categories.add(new ProductCategory(
-                        id, name, row.optBoolean("is_deleted", false)));
-            }
-
-            JSONObject meta = response.optJSONObject("meta");
-            lastPage = meta == null ? page : Math.max(page, meta.optInt("last_page", page));
-            page++;
-        } while (page <= lastPage && page <= 50);
-
-        if (categories.isEmpty()) {
-            throw new IOException("WASYT akkauntida ko'rinadigan mahsulot kategoriyalari topilmadi.");
+    static long getProductCategoryId(String token, long productId) throws IOException {
+        if (productId <= 0) throw new IOException("Mahsulot ID noto'g'ri.");
+        JSONObject response = request("GET",
+                "/company/product/product/" + productId + "?with%5B%5D=category",
+                token, null);
+        JSONObject product = unwrapObject(response);
+        long categoryId = product.optLong("category_id", -1L);
+        if (categoryId <= 0) {
+            JSONObject category = product.optJSONObject("category");
+            if (category != null) categoryId = category.optLong("id", -1L);
         }
-        return categories;
+        return categoryId;
     }
 
     static List<Client> searchClients(String token, String query) throws IOException {
@@ -429,7 +410,7 @@ final class WasytSellerApi {
                         product.optLong("id", -1L),
                         product.optString("name", product.optString("value", "Nomsiz mahsulot")),
                         product.optString("barcode", ""),
-                        product.optInt("quantity", 0),
+                        decimalOrZero(product.opt("quantity")),
                         product.optLong("price", product.optLong("amount", 0L)),
                         product.optLong("discount", 0L),
                         product.optString("unit", "")));
@@ -493,7 +474,7 @@ final class WasytSellerApi {
         for (int i = 0; i < lines.size(); i++) {
             CartLine line = lines.get(i);
             fields.put("products[" + i + "][id]", String.valueOf(line.productId));
-            fields.put("products[" + i + "][quantity]", String.valueOf(line.quantity));
+            fields.put("products[" + i + "][quantity]", line.quantityValue());
             // WASYT accepts the per-unit selling amount in this field.
             fields.put("products[" + i + "][amount]", String.valueOf(line.unitAmount));
             fields.put("products[" + i + "][discount]", "0");
@@ -588,6 +569,17 @@ final class WasytSellerApi {
         }
         output.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
         return output.toByteArray();
+    }
+
+    private static BigDecimal decimalOrZero(Object value) {
+        if (value == null || value == JSONObject.NULL) return BigDecimal.ZERO;
+        try {
+            String raw = String.valueOf(value).trim().replace(" ", "").replace(",", ".");
+            if (raw.isEmpty()) return BigDecimal.ZERO;
+            return new BigDecimal(raw);
+        } catch (Exception ignored) {
+            return BigDecimal.ZERO;
+        }
     }
 
     private static JSONObject unwrapObject(JSONObject response) {
