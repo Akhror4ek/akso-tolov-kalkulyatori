@@ -1,12 +1,16 @@
 name: Publish AKSO Finance Update
 
 on:
-  create:
   push:
     branches:
       - 'release/**'
   workflow_dispatch:
     inputs:
+      source_branch:
+        description: "APK olinadigan manba branch"
+        required: true
+        type: string
+        default: "feature/wasyt-seller-workflow"
       release_notes:
         description: "Sotuvchilarga ko'rinadigan yangilanishlar ro'yxati"
         required: false
@@ -18,12 +22,14 @@ permissions:
 
 jobs:
   publish:
-    if: ${{ github.event_name == 'workflow_dispatch' || ((github.event_name == 'create' || github.event_name == 'push') && startsWith(github.ref, 'refs/heads/release/')) }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')) }}
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout selected source branch
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_branch || github.ref }}
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -80,6 +86,7 @@ jobs:
             NOTES="AKSO Finance ${VERSION_NAME} yangilanishi."
           fi
 
+          SOURCE_SHA=$(git rev-parse HEAD)
           APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
           APK_RELEASE_PATH="$RUNNER_TEMP/AKSO-Finance.apk"
           if [[ ! -f "$APK_PATH" ]]; then
@@ -99,7 +106,7 @@ jobs:
               --title "$RELEASE_TITLE" \
               --notes "$NOTES" \
               --latest \
-              --target "$GITHUB_SHA"
+              --target "$SOURCE_SHA"
           fi
 
           echo "Published $RELEASE_TITLE as $TAG_NAME"
