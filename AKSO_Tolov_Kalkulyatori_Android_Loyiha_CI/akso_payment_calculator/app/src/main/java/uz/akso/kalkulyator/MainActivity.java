@@ -149,8 +149,19 @@ public class MainActivity extends Activity {
     private Button drawerNextArticleButton;
     private int drawerSelectedArticleIndex = -1;
     private DailySalesChartView drawerDailySalesChart;
-    private TextView drawerDailySalesTotal;
     private TextView drawerDailySalesStatus;
+    private TextView drawerTodaySalesValue;
+    private TextView drawerTodaySalesMeta;
+    private TextView drawerWeekSalesValue;
+    private TextView drawerWeekSalesMeta;
+    private TextView drawerMonthSalesValue;
+    private TextView drawerMonthSalesMeta;
+    private LinearLayout drawerTopProductsContainer;
+    private TextView drawerTopCategory;
+    private TextView drawerSellerMotivation;
+    private TextView drawerSellerSuggestion;
+    private TextView drawerSellerCritique;
+    private TextView drawerInsightsStatus;
     private Button drawerDailySalesRefreshButton;
     private boolean drawerSalesSyncLoading = false;
     private int drawerWidthPx;
@@ -1280,6 +1291,7 @@ public class MainActivity extends Activity {
                     wasytCompletedSales.clear();
                     wasytCompletedSales.addAll(snapshot);
                     refreshDrawerDailySalesChart();
+                    refreshDrawerSellerInsights();
                     salesSyncLoading = false;
                     if (salesSourceStatus != null) {
                         salesSourceStatus.setText("WASYT bilan sinxronlandi · "
@@ -2423,6 +2435,9 @@ public class MainActivity extends Activity {
             contentScroll.smoothScrollTo(0, imageFrame.getTop());
         });
 
+        // A real seller performance dashboard sits between the tips and quiz.
+        addDrawerSellerInsightsPanel(content);
+
         // Seller knowledge quiz is opened as a separate section from this menu.
         addSellerQuizLaunchButton(content);
 
@@ -2444,6 +2459,7 @@ public class MainActivity extends Activity {
                     dp(3.5f), dp(3.5f), Shader.TileMode.CLAMP));
         }
         refreshSalesDrawerCard();
+        refreshDrawerSellerInsights();
         enqueueSalesContentSyncIfStale();
         scheduleDrawerCachePoll();
         scheduleDrawerHourlyRefresh();
@@ -3916,9 +3932,20 @@ public class MainActivity extends Activity {
         drawerUpdateLabel = null;
         drawerNextArticleButton = null;
         drawerDailySalesChart = null;
-        drawerDailySalesTotal = null;
         drawerDailySalesStatus = null;
         drawerDailySalesRefreshButton = null;
+        drawerTodaySalesValue = null;
+        drawerTodaySalesMeta = null;
+        drawerWeekSalesValue = null;
+        drawerWeekSalesMeta = null;
+        drawerMonthSalesValue = null;
+        drawerMonthSalesMeta = null;
+        drawerTopProductsContainer = null;
+        drawerTopCategory = null;
+        drawerSellerMotivation = null;
+        drawerSellerSuggestion = null;
+        drawerSellerCritique = null;
+        drawerInsightsStatus = null;
         drawerSelectedArticleIndex = -1;
     }
 
@@ -4025,12 +4052,300 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void addDrawerSellerInsightsPanel(LinearLayout parent) {
+        GlassPanel panel = new GlassPanel(this, false, 17);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(12), dp(11), dp(12), dp(12));
+        LinearLayout.LayoutParams panelParams = matchWrap();
+        panelParams.topMargin = dp(12);
+        parent.addView(panel, panelParams);
+
+        TextView heading = text("📈  SOTUVCHINING SHAXSIY TAHLILI", 10, DARK_GREEN, true);
+        heading.setLetterSpacing(0.025f);
+        panel.addView(heading, matchWrap());
+
+        TextView subheading = text("WASYT'dagi yakunlangan savdolaringiz asosida", 8, MUTED, false);
+        subheading.setPadding(0, dp(3), 0, dp(8));
+        panel.addView(subheading, matchWrap());
+
+        LinearLayout metrics = new LinearLayout(this);
+        metrics.setGravity(Gravity.CENTER_VERTICAL);
+        panel.addView(metrics, matchWrap());
+        addDrawerMetricCard(metrics, "BUGUN", true);
+        addDrawerMetricCard(metrics, "HAFTA", false);
+        addDrawerMetricCard(metrics, "OY", false);
+
+        View divider = new View(this);
+        divider.setBackgroundColor(0x44FFFFFF);
+        LinearLayout.LayoutParams dividerParams = matchWidth(dp(1));
+        dividerParams.topMargin = dp(9);
+        dividerParams.bottomMargin = dp(8);
+        panel.addView(divider, dividerParams);
+
+        TextView productsHeading = text("ENG KO'P SOTILGAN TOVARLAR", 9, DARK_GREEN, true);
+        panel.addView(productsHeading, matchWrap());
+
+        drawerTopProductsContainer = new LinearLayout(this);
+        drawerTopProductsContainer.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams productsParams = matchWidth(ViewGroup.LayoutParams.WRAP_CONTENT);
+        productsParams.topMargin = dp(5);
+        panel.addView(drawerTopProductsContainer, productsParams);
+
+        drawerTopCategory = text("Faol kategoriya: ma'lumot kutilmoqda", 8, MUTED, false);
+        drawerTopCategory.setPadding(0, dp(6), 0, dp(7));
+        panel.addView(drawerTopCategory, matchWrap());
+
+        drawerSellerMotivation = addDrawerInsightBlock(panel,
+                "MOTIVATSIYA", 0xFF73DFA5);
+        drawerSellerSuggestion = addDrawerInsightBlock(panel,
+                "AMALIY TAKLIF", 0xFF8ED9C1);
+        drawerSellerCritique = addDrawerInsightBlock(panel,
+                "E'TIBOR BERISH KERAK", 0xFFE9C27B);
+
+        drawerInsightsStatus = text("WASYT savdolari yuklanmoqda…", 7, MUTED, false);
+        drawerInsightsStatus.setPadding(0, dp(7), 0, 0);
+        panel.addView(drawerInsightsStatus, matchWrap());
+    }
+
+    private void addDrawerMetricCard(LinearLayout parent, String label, boolean first) {
+        GlassPanel card = new GlassPanel(this, false, 11);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(6), dp(7), dp(5), dp(6));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        if (!first) params.leftMargin = dp(5);
+        parent.addView(card, params);
+
+        TextView title = text(label, 7, MUTED, true);
+        card.addView(title, matchWrap());
+
+        TextView value = text("—", 10, DARK_GREEN, true);
+        value.setPadding(0, dp(4), 0, dp(3));
+        card.addView(value, matchWrap());
+
+        TextView meta = text("Savdolar yuklanmoqda", 6, MUTED, false);
+        meta.setMaxLines(2);
+        card.addView(meta, matchWrap());
+
+        if ("BUGUN".equals(label)) {
+            drawerTodaySalesValue = value;
+            drawerTodaySalesMeta = meta;
+        } else if ("HAFTA".equals(label)) {
+            drawerWeekSalesValue = value;
+            drawerWeekSalesMeta = meta;
+        } else {
+            drawerMonthSalesValue = value;
+            drawerMonthSalesMeta = meta;
+        }
+    }
+
+    private TextView addDrawerInsightBlock(LinearLayout parent, String title, int accent) {
+        GlassPanel block = new GlassPanel(this, false, 12);
+        block.setOrientation(LinearLayout.VERTICAL);
+        block.setPadding(dp(9), dp(7), dp(9), dp(8));
+        LinearLayout.LayoutParams blockParams = matchWidth(ViewGroup.LayoutParams.WRAP_CONTENT);
+        blockParams.topMargin = dp(6);
+        parent.addView(block, blockParams);
+
+        TextView label = text(title, 7, accent, true);
+        block.addView(label, matchWrap());
+        TextView body = text("Savdo ma'lumotlari tahlil qilinmoqda…", 8, TEXT, false);
+        body.setLineSpacing(dp(2), 1f);
+        body.setPadding(0, dp(3), 0, 0);
+        block.addView(body, matchWrap());
+        return body;
+    }
+
+    private void refreshDrawerSellerInsights() {
+        if (drawerTodaySalesValue == null || drawerInsightsStatus == null) return;
+
+        String token = WasytSecureStore.getValidToken(this);
+        if (token == null || token.trim().isEmpty()) {
+            setSellerInsightsUnavailable("WASYT akkaunti ulanmagan. Avval sotuvchi akkauntini ulang.");
+            return;
+        }
+
+        WasytSalesInsights.Snapshot snapshot =
+                WasytSalesInsights.build(wasytCompletedSales, Calendar.getInstance());
+
+        drawerTodaySalesValue.setText(formatMoney(snapshot.today.total));
+        drawerTodaySalesMeta.setText(snapshot.today.saleCount + " ta savdo");
+
+        drawerWeekSalesValue.setText(formatMoney(snapshot.week.total));
+        drawerWeekSalesMeta.setText(snapshot.week.saleCount + " savdo · "
+                + trendLabel(snapshot.week.total, snapshot.previousWeek.total));
+
+        drawerMonthSalesValue.setText(formatMoney(snapshot.month.total));
+        drawerMonthSalesMeta.setText(snapshot.month.saleCount + " savdo · "
+                + trendLabel(snapshot.month.total, snapshot.previousMonthComparable.total));
+
+        if (drawerTopProductsContainer != null) {
+            drawerTopProductsContainer.removeAllViews();
+            if (!snapshot.hasProductDetails || snapshot.topProducts.isEmpty()) {
+                drawerTopProductsContainer.addView(text(
+                        "Mahsulot qatorlari hali WASYT'dan kelmadi. Tovarlar reytingi uchun keyingi yangilashni bosing.",
+                        8, MUTED, false), matchWrap());
+            } else {
+                for (int i = 0; i < snapshot.topProducts.size(); i++) {
+                    WasytSalesInsights.ProductStat product = snapshot.topProducts.get(i);
+                    LinearLayout row = new LinearLayout(this);
+                    row.setGravity(Gravity.CENTER_VERTICAL);
+                    row.setPadding(0, dp(4), 0, dp(4));
+                    drawerTopProductsContainer.addView(row, matchWrap());
+
+                    TextView rank = text(String.valueOf(i + 1), 9, DARK_GREEN, true);
+                    rank.setGravity(Gravity.CENTER);
+                    row.addView(rank, new LinearLayout.LayoutParams(dp(20), dp(30)));
+
+                    LinearLayout details = new LinearLayout(this);
+                    details.setOrientation(LinearLayout.VERTICAL);
+                    LinearLayout.LayoutParams detailsParams = new LinearLayout.LayoutParams(
+                            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                    row.addView(details, detailsParams);
+
+                    TextView name = text(product.name, 8, TEXT, true);
+                    name.setMaxLines(2);
+                    details.addView(name, matchWrap());
+
+                    String quantity = formatSalesQuantity(product.quantity);
+                    if (!product.unit.isEmpty()) quantity += " " + product.unit;
+                    String kind = product.kind.isEmpty() ? "Tovar" : product.kind;
+                    TextView meta = text(quantity + " · " + product.lineCount
+                            + " marta uchragan · " + kind, 7, MUTED, false);
+                    details.addView(meta, matchWrap());
+                }
+            }
+        }
+
+        if (drawerTopCategory != null) {
+            if (snapshot.topCategory == null) {
+                drawerTopCategory.setText("Faol kategoriya: hozircha aniqlanmadi");
+            } else {
+                drawerTopCategory.setText("Eng faol kategoriya: "
+                        + snapshot.topCategory.name + " · "
+                        + snapshot.topCategory.lineCount + " ta mahsulot qatori");
+            }
+        }
+
+        updateSellerMotivation(snapshot);
+        updateSellerRecommendation(snapshot);
+        updateSellerCritique(snapshot);
+
+        drawerInsightsStatus.setText(snapshot.hasProductDetails
+                ? "Tovarlar tahlili: " + snapshot.productPeriodLabel
+                        + " · " + snapshot.productLineCount + " ta savdo qatori"
+                : "Savat summalari yangilandi; mahsulot tafsilotlari hozircha mavjud emas.");
+    }
+
+    private void setSellerInsightsUnavailable(String message) {
+        drawerTodaySalesValue.setText("—");
+        drawerWeekSalesValue.setText("—");
+        drawerMonthSalesValue.setText("—");
+        drawerTodaySalesMeta.setText("WASYT ulanmagan");
+        drawerWeekSalesMeta.setText("WASYT ulanmagan");
+        drawerMonthSalesMeta.setText("WASYT ulanmagan");
+        if (drawerTopProductsContainer != null) {
+            drawerTopProductsContainer.removeAllViews();
+            drawerTopProductsContainer.addView(text(
+                    "Mahsulotlar ro'yxati ko'rsatilishi uchun WASYT'ni ulang.",
+                    8, MUTED, false), matchWrap());
+        }
+        if (drawerTopCategory != null) drawerTopCategory.setText("Faol kategoriya: —");
+        if (drawerSellerMotivation != null) drawerSellerMotivation.setText(message);
+        if (drawerSellerSuggestion != null) {
+            drawerSellerSuggestion.setText("WASYT akkauntini ulang va savdolarni yangilang.");
+        }
+        if (drawerSellerCritique != null) {
+            drawerSellerCritique.setText("Hozircha tahlil uchun savdo ma'lumotlari yo'q.");
+        }
+        drawerInsightsStatus.setText(message);
+    }
+
+    private String trendLabel(BigDecimal current, BigDecimal previous) {
+        if (previous == null || previous.signum() <= 0) {
+            return current != null && current.signum() > 0 ? "oldingi davrda savdo yo'q" : "o'zgarish yo'q";
+        }
+        BigDecimal percent = current.subtract(previous).multiply(BigDecimal.valueOf(100))
+                .divide(previous, 0, RoundingMode.HALF_UP);
+        String prefix = percent.signum() > 0 ? "+" : "";
+        return prefix + percent.toPlainString() + "%";
+    }
+
+    private String formatSalesQuantity(BigDecimal quantity) {
+        return quantity == null ? "0" : quantity.stripTrailingZeros().toPlainString();
+    }
+
+    private void updateSellerMotivation(WasytSalesInsights.Snapshot snapshot) {
+        if (drawerSellerMotivation == null) return;
+        if (snapshot.today.saleCount > 0) {
+            drawerSellerMotivation.setText("Bugun " + snapshot.today.saleCount
+                    + " ta savdo yakunlab, " + formatMoney(snapshot.today.total)
+                    + " so'm tushum qildingiz. Natijani saqlang: har bir mijozga e'tibor va sifatli xizmatni davom ettiring.");
+        } else if (snapshot.week.saleCount > 0) {
+            drawerSellerMotivation.setText("Bugun hali yakunlangan savdo qayd etilmadi, ammo shu haftada "
+                    + snapshot.week.saleCount + " ta savdo va "
+                    + formatMoney(snapshot.week.total)
+                    + " so'm natija bor. Kuningizni faol yakunlashga hali imkon bor.");
+        } else if (snapshot.month.saleCount > 0) {
+            drawerSellerMotivation.setText("Shu oyda " + snapshot.month.saleCount
+                    + " ta savdo va " + formatMoney(snapshot.month.total)
+                    + " so'm tushum qayd etilgan. Shu natijani muntazam kunlik faollikka aylantiring.");
+        } else {
+            drawerSellerMotivation.setText("Tanlangan WASYT ma'lumotlarida yakunlangan savdo topilmadi. Birinchi savdoni amalga oshirish uchun mijoz ehtiyojini aniqlashdan boshlang.");
+        }
+    }
+
+    private void updateSellerRecommendation(WasytSalesInsights.Snapshot snapshot) {
+        if (drawerSellerSuggestion == null) return;
+        if (!snapshot.topProducts.isEmpty()) {
+            WasytSalesInsights.ProductStat top = snapshot.topProducts.get(0);
+            drawerSellerSuggestion.setText("“" + top.name + "” sizning "
+                    + snapshot.productPeriodLabel.toLowerCase(Locale.getDefault())
+                    + " davringizda eng ko'p uchragan tovar. Uning mavjudligini nazorat qiling va mijozga shu mahsulotga mos qo'shimcha tovar yoki qulay to'lov usulini ham taklif qiling.");
+        } else if (snapshot.week.saleCount > 0 || snapshot.month.saleCount > 0) {
+            drawerSellerSuggestion.setText("Savdo summalari bor, ammo mahsulot tarkibi WASYT'dan qaytmadi. Savdo va mahsulotlar ma'lumotini qayta yangilab, keyin tovarlar bo'yicha takliflarni shakllantiring.");
+        } else {
+            drawerSellerSuggestion.setText("Har bir mijoz bilan suhbatda ehtiyojini aniqlang, mos mahsulotni ko'rsating va qo'shimcha ehtiyojini so'rang.");
+        }
+    }
+
+    private void updateSellerCritique(WasytSalesInsights.Snapshot snapshot) {
+        if (drawerSellerCritique == null) return;
+
+        BigDecimal previous = snapshot.previousWeek.total;
+        BigDecimal current = snapshot.week.total;
+        if (previous.signum() > 0 && current.compareTo(previous) < 0) {
+            BigDecimal drop = previous.subtract(current).multiply(BigDecimal.valueOf(100))
+                    .divide(previous, 0, RoundingMode.HALF_UP);
+            drawerSellerCritique.setText("Diqqat: joriy haftaning tushumi oldingi haftaga nisbatan "
+                    + drop.toPlainString() + "% past. Mijozlar bilan qayta aloqa qiling, savdo kamaygan kunlarni ko'rib chiqing va sababini aniqlang.");
+            return;
+        }
+
+        BigDecimal discount = snapshot.week.discountTotal;
+        BigDecimal amount = snapshot.week.total.add(discount);
+        if (discount.signum() > 0 && amount.signum() > 0
+                && discount.multiply(BigDecimal.valueOf(100))
+                .divide(amount, 0, RoundingMode.HALF_UP)
+                .compareTo(BigDecimal.valueOf(8)) >= 0) {
+            drawerSellerCritique.setText("E'tibor: shu haftada "
+                    + formatMoney(discount) + " so'm chegirma qo'llangan. Yangi chegirma berishdan oldin mahsulot tannarxi va foyda marjasini tekshiring.");
+            return;
+        }
+
+        if (snapshot.week.saleCount == 0) {
+            drawerSellerCritique.setText("Oxirgi haftada yakunlangan savdo qayd etilmagan. Mijozlar bilan muloqot va takliflar sonini oshirishga e'tibor bering.");
+        } else {
+            drawerSellerCritique.setText("Yaxshilash nuqtasi: faqat savdoni yakunlash bilan cheklanmang. Har bir mos xaridorga qo'shimcha mahsulot, kafolat yoki qulay to'lov variantini taklif etishni unutmang.");
+        }
+    }
+
     private void addDrawerDailySalesChart(LinearLayout parent) {
         GlassPanel chartPanel = new GlassPanel(this, false, 17);
         chartPanel.setOrientation(LinearLayout.VERTICAL);
-        chartPanel.setPadding(dp(13), dp(12), dp(13), dp(12));
+        chartPanel.setPadding(dp(11), dp(9), dp(11), dp(9));
         LinearLayout.LayoutParams panelParams = matchWrap();
-        panelParams.topMargin = dp(14);
+        panelParams.topMargin = dp(10);
         parent.addView(chartPanel, panelParams);
 
         LinearLayout headingRow = new LinearLayout(this);
@@ -4051,13 +4366,9 @@ public class MainActivity extends Activity {
         subtitle.setPadding(dp(1), dp(3), 0, dp(3));
         chartPanel.addView(subtitle, matchWrap());
 
-        drawerDailySalesTotal = text("0 so‘m", 17, DARK_GREEN, true);
-        drawerDailySalesTotal.setPadding(0, dp(2), 0, dp(5));
-        chartPanel.addView(drawerDailySalesTotal, matchWrap());
-
         drawerDailySalesChart = new DailySalesChartView(this);
         chartPanel.addView(drawerDailySalesChart,
-                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(142)));
+                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(108)));
 
         drawerDailySalesStatus = text(
                 "WASYT savdolari yuklanmoqda…", 8, MUTED, false);
@@ -4108,6 +4419,7 @@ public class MainActivity extends Activity {
                     wasytCompletedSales.clear();
                     wasytCompletedSales.addAll(snapshot);
                     refreshDrawerDailySalesChart();
+                    refreshDrawerSellerInsights();
                     if (drawerOverlay == null) return;
                     if (drawerDailySalesStatus != null) {
                         drawerDailySalesStatus.setText(
@@ -4141,7 +4453,6 @@ public class MainActivity extends Activity {
 
         ArrayList<BigDecimal> amounts = new ArrayList<>(7);
         ArrayList<String> labels = new ArrayList<>(7);
-        BigDecimal weekTotal = BigDecimal.ZERO;
         int weekCount = 0;
 
         Calendar today = Calendar.getInstance();
@@ -4153,17 +4464,12 @@ public class MainActivity extends Activity {
         for (int offset = -6; offset <= 0; offset++) {
             Calendar day = (Calendar) today.clone();
             day.add(Calendar.DAY_OF_YEAR, offset);
-            BigDecimal amount = WasytSalesRepository.getDailyTotal(wasytCompletedSales, day);
-            amounts.add(amount);
+            amounts.add(WasytSalesRepository.getDailyTotal(wasytCompletedSales, day));
             labels.add(shortSalesWeekday(day));
-            weekTotal = weekTotal.add(amount);
             weekCount += WasytSalesRepository.getDailyCount(wasytCompletedSales, day);
         }
 
         drawerDailySalesChart.setData(amounts, labels);
-        if (drawerDailySalesTotal != null) {
-            drawerDailySalesTotal.setText(formatMoney(weekTotal) + " so‘m");
-        }
         if (drawerDailySalesStatus != null && !drawerSalesSyncLoading
                 && WasytSecureStore.getValidToken(this) != null) {
             if (weekCount == 0) {
@@ -4213,8 +4519,8 @@ public class MainActivity extends Activity {
 
             float left = dp(7);
             float right = getWidth() - dp(7);
-            float top = dp(24);
-            float baseline = getHeight() - dp(25);
+            float top = dp(19);
+            float baseline = getHeight() - dp(21);
             float graphHeight = Math.max(dp(35), baseline - top);
             float graphWidth = Math.max(dp(70), right - left);
             float step = graphWidth / 7f;
