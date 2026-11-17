@@ -421,9 +421,15 @@ final class AppUpdateManager {
         try {
             Uri apkUri = manager.getUriForDownloadedFile(downloadId);
             if (apkUri == null) {
-                showMandatoryStatusDialog(activity, readPendingUpdate(
-                        activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)),
-                        "Yuklangan APK topilmadi. Qayta yuklashga urinib ko'ring.");
+                Update pending = readPendingUpdate(
+                        activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE));
+                if (pending != null) {
+                    showMandatoryStatusDialog(activity, pending,
+                            "Yuklangan APK topilmadi. Qayta yuklashga urinib ko'ring.");
+                } else {
+                    Toast.makeText(activity, "Majburiy yangilanish ma'lumoti topilmadi.",
+                            Toast.LENGTH_LONG).show();
+                }
                 return;
             }
             Intent install = new Intent(Intent.ACTION_VIEW);
