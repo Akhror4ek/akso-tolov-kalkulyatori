@@ -109,3 +109,12 @@ Birinchi release'ni GitHub Actions orqali yaratishdan oldin:
 2. Workflow permissions qismida "Read and write permissions"ni tanlang.
 3. Save tugmasini bosing.
 Bu ruxsat GitHub Actions'ga GitHub Release yaratish va APK biriktirish uchun kerak.
+
+AKSO FINANCE 1.8 — MAJBURIY YANGILANISH TUZATISHI
+------------------------------------------------
+- APK endi o'rnatish ruxsatini so'rashdan oldin yuklab olinadi.
+- Yuklab olish jarayonida foiz va MB hisoblagichi ko'rsatiladi.
+- DownloadManager xatolari batafsilroq ko'rsatiladi va muvaffaqiyatsiz yuklash
+  qayta urinib ko'riladi.
+- APK yuklangandan keyingina Android noma'lum manbadan o'rnatish ruxsatini so'raydi.
+- Yuklab olish bildirishnomasi bosilganda ruxsat/installer oqimi to'g'ri ishlaydi.
