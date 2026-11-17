@@ -156,6 +156,16 @@ public class MainActivity extends Activity {
     private int drawerWidthPx;
     private Dialog sellerQuizDialog;
     private final Handler drawerHandler = new Handler(Looper.getMainLooper());
+    private final Handler appUpdateHandler = new Handler(Looper.getMainLooper());
+    // Recheck shortly after five minutes so the update manager's five-minute
+    // rate limit has certainly elapsed, even with Android handler scheduling jitter.
+    private final Runnable periodicAppUpdateCheck = new Runnable() {
+        @Override public void run() {
+            if (isFinishing() || isDestroyed()) return;
+            AppUpdateManager.checkForUpdate(MainActivity.this);
+            appUpdateHandler.postDelayed(this, TimeUnit.MINUTES.toMillis(5) + 2000L);
+        }
+    };
     private Runnable drawerHourlyRefresh;
     private Runnable drawerCachePoll;
     private int drawerCachePollAttempts;
@@ -4277,6 +4287,8 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         AppUpdateManager.checkForUpdate(this);
+        appUpdateHandler.removeCallbacks(periodicAppUpdateCheck);
+        appUpdateHandler.postDelayed(periodicAppUpdateCheck, TimeUnit.MINUTES.toMillis(5) + 2000L);
         if (isDailySalesDialogVisible() && WasytSecureStore.getValidToken(this) != null
                 && salesSourceStatus != null
                 && salesSourceStatus.getText().toString().contains("akkaunti ulanmagan")) {
@@ -4285,7 +4297,14 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onPause() {
+        appUpdateHandler.removeCallbacks(periodicAppUpdateCheck);
+        super.onPause();
+    }
+
+    @Override
     protected void onDestroy() {
+        appUpdateHandler.removeCallbacks(periodicAppUpdateCheck);
         if (sellerQuizDialog != null && sellerQuizDialog.isShowing()) sellerQuizDialog.dismiss();
         if (drawerHourlyRefresh != null) drawerHandler.removeCallbacks(drawerHourlyRefresh);
         if (drawerCachePoll != null) drawerHandler.removeCallbacks(drawerCachePoll);
