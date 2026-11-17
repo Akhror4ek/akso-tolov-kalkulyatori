@@ -134,6 +134,12 @@ public class WasytSellerActivity extends Activity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        AppUpdateManager.checkForUpdate(this);
+    }
+
+    @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         // Resize the seller form when the on-screen keyboard opens.
