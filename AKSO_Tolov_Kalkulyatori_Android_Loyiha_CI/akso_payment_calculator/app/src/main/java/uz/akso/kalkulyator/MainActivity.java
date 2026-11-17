@@ -4077,7 +4077,8 @@ public class MainActivity extends Activity {
 
         View divider = new View(this);
         divider.setBackgroundColor(0x44FFFFFF);
-        LinearLayout.LayoutParams dividerParams = matchWidth(dp(1));
+        LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
         dividerParams.topMargin = dp(9);
         dividerParams.bottomMargin = dp(8);
         panel.addView(divider, dividerParams);
@@ -4087,7 +4088,7 @@ public class MainActivity extends Activity {
 
         drawerTopProductsContainer = new LinearLayout(this);
         drawerTopProductsContainer.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams productsParams = matchWidth(ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams productsParams = matchWrap();
         productsParams.topMargin = dp(5);
         panel.addView(drawerTopProductsContainer, productsParams);
 
@@ -4143,7 +4144,7 @@ public class MainActivity extends Activity {
         GlassPanel block = new GlassPanel(this, false, 12);
         block.setOrientation(LinearLayout.VERTICAL);
         block.setPadding(dp(9), dp(7), dp(9), dp(8));
-        LinearLayout.LayoutParams blockParams = matchWidth(ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams blockParams = matchWrap();
         blockParams.topMargin = dp(6);
         parent.addView(block, blockParams);
 
