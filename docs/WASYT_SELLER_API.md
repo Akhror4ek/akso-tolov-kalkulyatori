@@ -120,7 +120,9 @@ Observed as POST with `_method=PATCH`. A successful response returned the cart w
 
 `GET /company/trade/seller-cart?page-size=20&page=1&with[]=client&with[]=creator.profile&sort[]=-created_at`
 
-Observed HTTP 200 with a paginated `data` array and `meta` pagination information. Captured cart records included `id`, `code`, `client_id`, `sale_id`, `status`, `sale_status`, `amount`, `discount_amount`, `total_amount`, `products_count`, `created_at`, `updated_at`, `sent_at`, and cancellation fields.
+Observed HTTP 200 with a paginated `data` array and `meta` pagination information. The endpoint also supports `with[0]=products.product.category&with[1]=products.product.unit` to return each cart's product rows in the same response. Product rows include `id`, `name`, `category`, `barcode`, `quantity`, `price`, `discount`, and `unit`; service and bundle relations are available via `products.service.category`, `products.bundle.category`, and `products.bundle.items.product.unit`.
+
+Captured cart records include `id`, `code`, `client_id`, `sale_id`, `status`, `sale_status`, `amount`, `discount_amount`, `total_amount`, `products_count`, `created_at`, `updated_at`, `sent_at`, and cancellation fields. AKSO Finance uses the server-returned `total_amount` for period revenue and product rows for quantity/category frequency; it does not estimate profit because seller-cart rows do not provide product cost/margin.
 
 ### 8. Read seller-cart detail products
 
