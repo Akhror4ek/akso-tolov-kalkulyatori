@@ -115,13 +115,14 @@ final class WasytSellerApi {
         final String completedAt;
         final String cancelReason;
         final String cancelComment;
+        final List<CartProduct> products;
 
         Cart(long id, long saleId, int productsCount, String code,
              String status, String saleStatus, long amount, long discountAmount,
              long totalAmount, String clientName, String clientPhone,
              String sellerName, String createdAt, String sentAt,
              String updatedAt, String completedAt,
-             String cancelReason, String cancelComment) {
+             String cancelReason, String cancelComment, List<CartProduct> products) {
             this.id = id;
             this.saleId = saleId;
             this.productsCount = productsCount;
@@ -140,6 +141,7 @@ final class WasytSellerApi {
             this.completedAt = safe(completedAt);
             this.cancelReason = safe(cancelReason);
             this.cancelComment = safe(cancelComment);
+            this.products = products == null ? new ArrayList<>() : new ArrayList<>(products);
         }
     }
 
@@ -165,16 +167,28 @@ final class WasytSellerApi {
         final long price;
         final long discount;
         final String unit;
+        final String category;
+        final boolean service;
+        final boolean bundle;
 
         CartProduct(long id, String name, String barcode, BigDecimal quantity,
                     long price, long discount, String unit) {
+            this(id, name, barcode, quantity, price, discount, unit, "", false, false);
+        }
+
+        CartProduct(long id, String name, String barcode, BigDecimal quantity,
+                    long price, long discount, String unit, String category,
+                    boolean service, boolean bundle) {
             this.id = id;
             this.name = safe(name);
             this.barcode = safe(barcode);
-            this.quantity = quantity;
+            this.quantity = quantity == null ? BigDecimal.ZERO : quantity;
             this.price = price;
             this.discount = discount;
             this.unit = safe(unit);
+            this.category = safe(category);
+            this.service = service;
+            this.bundle = bundle;
         }
     }
 
@@ -368,8 +382,17 @@ final class WasytSellerApi {
 
     static CartPage listCartPage(String token, int page) throws IOException {
         int requestedPage = Math.max(1, page);
+        // Product relations are officially supported on the paginated seller-cart list.
+        // Load names, categories and units with each page so seller insights need no
+        // extra request per completed cart.
         String path = "/company/trade/seller-cart?page-size=20&page=" + requestedPage
-                + "&with%5B%5D=client&with%5B%5D=creator.profile"
+                + "&with%5B0%5D=client"
+                + "&with%5B1%5D=creator.profile"
+                + "&with%5B2%5D=products.product.category"
+                + "&with%5B3%5D=products.product.unit"
+                + "&with%5B4%5D=products.service.category"
+                + "&with%5B5%5D=products.bundle.category"
+                + "&with%5B6%5D=products.bundle.items.product.unit"
                 + "&sort%5B%5D=-created_at";
         JSONObject response = request("GET", path, token, null);
         JSONArray rows = response.optJSONArray("data");
@@ -404,32 +427,49 @@ final class WasytSellerApi {
                 + "&with%5B2%5D=creator.profile", token, null);
         JSONObject row = unwrapObject(response);
         JSONObject client = row.optJSONObject("client");
-        JSONArray rows = row.optJSONArray("products");
-        ArrayList<CartProduct> products = new ArrayList<>();
-        if (rows != null) {
-            for (int i = 0; i < rows.length(); i++) {
-                JSONObject product = rows.optJSONObject(i);
-                if (product == null) continue;
-                String productName = firstNonEmpty(
-                        nullableText(product, "name"),
-                        nullableText(product, "value"),
-                        "Nomsiz mahsulot");
-                String productUnit = nullableText(product, "unit");
-                // WASYT's documented seller-cart detail response returns unit as
-                // a string when products.product.unit is included in the request.
-                products.add(new CartProduct(
-                        product.optLong("id", -1L),
-                        productName,
-                        nullableText(product, "barcode"),
-                        decimalOrZero(product.opt("quantity")),
-                        product.optLong("price", product.optLong("amount", 0L)),
-                        product.optLong("discount", product.optLong("discount_amount", 0L)),
-                        productUnit));
-            }
-        }
-        return new CartDetails(parseCart(row, client),
+        Cart cart = parseCart(row, client);
+        return new CartDetails(cart,
                 client == null ? "" : client.optString("main_phone", ""),
-                row.optBoolean("is_reserved", false), products);
+                row.optBoolean("is_reserved", false), cart.products);
+    }
+
+    private static List<CartProduct> parseCartProducts(JSONObject row) {
+        ArrayList<CartProduct> products = new ArrayList<>();
+        if (row == null) return products;
+        JSONArray rows = row.optJSONArray("products");
+        if (rows == null) return products;
+
+        for (int i = 0; i < rows.length(); i++) {
+            JSONObject product = rows.optJSONObject(i);
+            if (product == null) continue;
+
+            String name = firstNonEmpty(
+                    nullableText(product, "name"),
+                    nullableText(product, "value"),
+                    "Nomsiz mahsulot");
+            String unit = nullableText(product, "unit");
+            String category = nullableText(product, "category");
+            if (category.isEmpty()) {
+                JSONObject categoryObject = product.optJSONObject("category");
+                if (categoryObject != null) {
+                    category = firstNonEmpty(nullableText(categoryObject, "value"),
+                            nullableText(categoryObject, "name"));
+                }
+            }
+
+            products.add(new CartProduct(
+                    product.optLong("id", -1L),
+                    name,
+                    nullableText(product, "barcode"),
+                    decimalOrZero(product.opt("quantity")),
+                    product.optLong("price", product.optLong("amount", 0L)),
+                    product.optLong("discount", product.optLong("discount_amount", 0L)),
+                    unit,
+                    category,
+                    product.optBoolean("is_service", false),
+                    product.optBoolean("is_bundle", false)));
+        }
+        return products;
     }
 
     private static Cart parseCart(JSONObject row, JSONObject client) {
@@ -455,7 +495,8 @@ final class WasytSellerApi {
                         nullableText(row, "sale_completed_at"),
                         nullableText(row, "sold_at")),
                 nullableText(row, "cancel_reason"),
-                nullableText(row, "cancel_comment"));
+                nullableText(row, "cancel_comment"),
+                parseCartProducts(row));
     }
 
     private static String firstNonEmpty(String... values) {
