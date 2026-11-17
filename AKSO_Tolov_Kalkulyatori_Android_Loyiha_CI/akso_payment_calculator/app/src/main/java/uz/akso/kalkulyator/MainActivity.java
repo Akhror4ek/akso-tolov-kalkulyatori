@@ -2175,7 +2175,6 @@ public class MainActivity extends Activity {
 
         GlassBackdropView(Context context) {
             super(context);
-            setLayerType(View.LAYER_TYPE_SOFTWARE, null);
         }
 
         @Override protected void onDraw(Canvas canvas) {
@@ -2261,11 +2260,6 @@ public class MainActivity extends Activity {
             float h = getHeight();
             float r = dp(radiusDp);
 
-            Path clip = new Path();
-            clip.addRoundRect(0, 0, w, h, r, r, Path.Direction.CW);
-            int save = canvas.save();
-            canvas.clipPath(clip);
-
             sheen.setShader(new LinearGradient(0, 0, 0, h * 0.78f,
                     emerald
                             ? new int[]{0x44FFFFFF, 0x13FFFFFF, 0x00FFFFFF}
@@ -2285,10 +2279,8 @@ public class MainActivity extends Activity {
             rim.setStyle(Paint.Style.STROKE);
             rim.setStrokeWidth(dp(1));
             rim.setColor(emerald ? 0x88FFFFFF : (darkMode ? 0x7797DDB6 : 0xBFFFFFFF));
-            canvas.drawPath(clip, rim);
+            canvas.drawRoundRect(0, 0, w, h, r, r, rim);
             rim.setStyle(Paint.Style.FILL);
-
-            canvas.restoreToCount(save);
         }
     }
     // ================== AKSO SAVDO ILHOMI DRAWER ==================
@@ -2362,6 +2354,9 @@ public class MainActivity extends Activity {
         ScrollView contentScroll = new ScrollView(this);
         contentScroll.setFillViewport(false);
         contentScroll.setVerticalScrollBarEnabled(false);
+        contentScroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        contentScroll.setSmoothScrollingEnabled(true);
+        contentScroll.setScrollBarStyle(View.SCROLLBARS_INSIDE_OVERLAY);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         contentScroll.addView(content, new ScrollView.LayoutParams(
@@ -2454,10 +2449,6 @@ public class MainActivity extends Activity {
         panel.animate().translationX(0).setDuration(190)
                 .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && mainScrollView != null) {
-            mainScrollView.setRenderEffect(RenderEffect.createBlurEffect(
-                    dp(3.5f), dp(3.5f), Shader.TileMode.CLAMP));
-        }
         refreshSalesDrawerCard();
         refreshDrawerSellerInsights();
         enqueueSalesContentSyncIfStale();
@@ -3907,9 +3898,6 @@ public class MainActivity extends Activity {
         final FrameLayout oldOverlay = drawerOverlay;
         final View oldPanel = drawerPanel;
         final View oldScrim = drawerScrim;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && mainScrollView != null) {
-            mainScrollView.setRenderEffect(null);
-        }
         if (oldScrim != null) oldScrim.animate().alpha(0f).setDuration(180).start();
         if (oldPanel != null) {
             oldPanel.animate().translationX(-drawerWidthPx).setDuration(170)
@@ -4619,9 +4607,6 @@ public class MainActivity extends Activity {
         // MainActivity is active; only stop it when the Activity itself is destroyed.
         salesSyncExecutor.shutdownNow();
         if (drawerCachePoll != null) drawerHandler.removeCallbacks(drawerCachePoll);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && mainScrollView != null) {
-            mainScrollView.setRenderEffect(null);
-        }
         super.onDestroy();
     }
 
