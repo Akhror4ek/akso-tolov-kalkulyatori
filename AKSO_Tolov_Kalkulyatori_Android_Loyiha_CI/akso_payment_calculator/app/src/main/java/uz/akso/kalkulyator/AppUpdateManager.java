@@ -38,7 +38,7 @@ final class AppUpdateManager {
     private static final String APK_MIME_TYPE = "application/vnd.android.package-archive";
     private static final String PREFS = "akso_app_updates";
     private static final String LAST_CHECK = "last_check_at";
-    private static final long CHECK_INTERVAL_MS = 4L * 60L * 60L * 1000L;
+    private static final long CHECK_INTERVAL_MS = 5L * 60L * 1000L;
     private static final int CONNECT_TIMEOUT_MS = 10000;
     private static final int READ_TIMEOUT_MS = 15000;
     private static final int MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
