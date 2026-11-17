@@ -2229,7 +2229,6 @@ public class MainActivity extends Activity {
             this.emerald = emerald;
             this.radiusDp = radiusDp;
             setWillNotDraw(false);
-            setLayerType(View.LAYER_TYPE_SOFTWARE, null);
             setBackground(makeBackground());
             setElevation(dp(5));
             setClipToOutline(true);
@@ -4490,7 +4489,6 @@ public class MainActivity extends Activity {
 
         DailySalesChartView(Context context) {
             super(context);
-            setLayerType(View.LAYER_TYPE_SOFTWARE, null);
         }
 
         void setData(List<BigDecimal> amounts, List<String> labels) {
