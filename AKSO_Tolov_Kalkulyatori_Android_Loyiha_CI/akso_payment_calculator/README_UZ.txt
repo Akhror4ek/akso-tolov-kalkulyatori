@@ -109,3 +109,11 @@ Birinchi release'ni GitHub Actions orqali yaratishdan oldin:
 2. Workflow permissions qismida "Read and write permissions"ni tanlang.
 3. Save tugmasini bosing.
 Bu ruxsat GitHub Actions'ga GitHub Release yaratish va APK biriktirish uchun kerak.
+
+AKSO FINANCE 1.3 — SAVDO GRAFIGI
+--------------------------------
+- Yon panelning eng pastiga oxirgi 7 kunlik savdo grafigi qo'shildi.
+- Har bir kun uchun WASYT'dagi yakunlangan savdolar summasi alohida ustun bilan
+  ko'rsatiladi.
+- 7 kunlik jami savdo summasi va yakunlangan savdolar soni ko'rsatiladi.
+- Grafik panel ochilganda WASYT'dan yangilanadi; qo'lda qayta yangilash tugmasi bor.
