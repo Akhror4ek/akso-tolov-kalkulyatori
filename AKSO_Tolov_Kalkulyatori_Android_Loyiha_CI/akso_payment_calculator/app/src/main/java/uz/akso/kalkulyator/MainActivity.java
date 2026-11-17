@@ -148,6 +148,11 @@ public class MainActivity extends Activity {
     private TextView drawerUpdateLabel;
     private Button drawerNextArticleButton;
     private int drawerSelectedArticleIndex = -1;
+    private DailySalesChartView drawerDailySalesChart;
+    private TextView drawerDailySalesTotal;
+    private TextView drawerDailySalesStatus;
+    private Button drawerDailySalesRefreshButton;
+    private boolean drawerSalesSyncLoading = false;
     private int drawerWidthPx;
     private Dialog sellerQuizDialog;
     private final Handler drawerHandler = new Handler(Looper.getMainLooper());
@@ -1264,6 +1269,7 @@ public class MainActivity extends Activity {
                     if (!isDailySalesDialogVisible()) return;
                     wasytCompletedSales.clear();
                     wasytCompletedSales.addAll(snapshot);
+                    refreshDrawerDailySalesChart();
                     salesSyncLoading = false;
                     if (salesSourceStatus != null) {
                         salesSourceStatus.setText("WASYT bilan sinxronlandi · "
@@ -2410,6 +2416,9 @@ public class MainActivity extends Activity {
         // Seller knowledge quiz is opened as a separate section from this menu.
         addSellerQuizLaunchButton(content);
 
+        // Daily completed-sales chart stays at the very bottom of the drawer.
+        addDrawerDailySalesChart(content);
+
         drawerOverlay.addView(panel, new FrameLayout.LayoutParams(
                 drawerWidthPx, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.START | Gravity.TOP));
         drawerHost.addView(drawerOverlay, new FrameLayout.LayoutParams(
@@ -2428,6 +2437,8 @@ public class MainActivity extends Activity {
         enqueueSalesContentSyncIfStale();
         scheduleDrawerCachePoll();
         scheduleDrawerHourlyRefresh();
+        refreshDrawerDailySalesChart();
+        loadWasytSalesForDrawer();
     }
 
 
@@ -3894,6 +3905,10 @@ public class MainActivity extends Activity {
         drawerArticleBody = null;
         drawerUpdateLabel = null;
         drawerNextArticleButton = null;
+        drawerDailySalesChart = null;
+        drawerDailySalesTotal = null;
+        drawerDailySalesStatus = null;
+        drawerDailySalesRefreshButton = null;
         drawerSelectedArticleIndex = -1;
     }
 
@@ -3997,6 +4012,250 @@ public class MainActivity extends Activity {
             drawerArticleTitle.setText("Mijozga qiymat taklif qiling");
             drawerArticleBody.setText("Mahsulotning foydasini tushuntiring, mijozni tinglang va to‘lov shartlarini aniq ko‘rsating.");
             if (drawerImageFallback != null) drawerImageFallback.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private void addDrawerDailySalesChart(LinearLayout parent) {
+        GlassPanel chartPanel = new GlassPanel(this, false, 17);
+        chartPanel.setOrientation(LinearLayout.VERTICAL);
+        chartPanel.setPadding(dp(13), dp(12), dp(13), dp(12));
+        LinearLayout.LayoutParams panelParams = matchWrap();
+        panelParams.topMargin = dp(14);
+        parent.addView(chartPanel, panelParams);
+
+        LinearLayout headingRow = new LinearLayout(this);
+        headingRow.setGravity(Gravity.CENTER_VERTICAL);
+        chartPanel.addView(headingRow, matchWrap());
+
+        TextView title = text("📊  KUNLIK SAVDO GRAFIGI", 10, DARK_GREEN, true);
+        title.setLetterSpacing(0.025f);
+        headingRow.addView(title, new LinearLayout.LayoutParams(
+                0, dp(34), 1f));
+
+        drawerDailySalesRefreshButton = calculatorButton("↻", 13, false, true);
+        headingRow.addView(drawerDailySalesRefreshButton,
+                new LinearLayout.LayoutParams(dp(38), dp(34)));
+        drawerDailySalesRefreshButton.setOnClickListener(v -> loadWasytSalesForDrawer());
+
+        TextView subtitle = text("SO‘NGGI 7 KUN  ·  YAKUNLANGAN SAVDOLAR", 8, MUTED, true);
+        subtitle.setPadding(dp(1), dp(3), 0, dp(3));
+        chartPanel.addView(subtitle, matchWrap());
+
+        drawerDailySalesTotal = text("0 so‘m", 17, DARK_GREEN, true);
+        drawerDailySalesTotal.setPadding(0, dp(2), 0, dp(5));
+        chartPanel.addView(drawerDailySalesTotal, matchWrap());
+
+        drawerDailySalesChart = new DailySalesChartView(this);
+        chartPanel.addView(drawerDailySalesChart,
+                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(142)));
+
+        drawerDailySalesStatus = text(
+                "WASYT savdolari yuklanmoqda…", 8, MUTED, false);
+        drawerDailySalesStatus.setPadding(dp(1), dp(5), 0, 0);
+        chartPanel.addView(drawerDailySalesStatus, matchWrap());
+    }
+
+    private void loadWasytSalesForDrawer() {
+        if (drawerOverlay == null || isFinishing() || isDestroyed()) return;
+        if (drawerSalesSyncLoading) return;
+
+        // If the calendar is already fetching the same feed, let its result
+        // populate the drawer chart instead of issuing a duplicate request.
+        if (salesSyncLoading) {
+            if (drawerDailySalesStatus != null) {
+                drawerDailySalesStatus.setText("WASYT savdolari yangilanmoqda…");
+            }
+            return;
+        }
+
+        String token = WasytSecureStore.getValidToken(this);
+        if (token == null || token.trim().isEmpty()) {
+            if (drawerDailySalesStatus != null) {
+                drawerDailySalesStatus.setText("WASYT akkauntini ulang — savdo grafigi uchun internet kerak.");
+            }
+            if (drawerDailySalesRefreshButton != null) {
+                drawerDailySalesRefreshButton.setEnabled(true);
+            }
+            refreshDrawerDailySalesChart();
+            return;
+        }
+
+        drawerSalesSyncLoading = true;
+        if (drawerDailySalesStatus != null) {
+            drawerDailySalesStatus.setText("WASYT yakunlangan savdolari yuklanmoqda…");
+        }
+        if (drawerDailySalesRefreshButton != null) {
+            drawerDailySalesRefreshButton.setEnabled(false);
+        }
+
+        salesSyncExecutor.execute(() -> {
+            try {
+                List<WasytSellerApi.Cart> completed =
+                        WasytSalesRepository.loadCompletedSales(this, token);
+                ArrayList<WasytSellerApi.Cart> snapshot = new ArrayList<>(completed);
+                salesHandler.post(() -> {
+                    drawerSalesSyncLoading = false;
+                    wasytCompletedSales.clear();
+                    wasytCompletedSales.addAll(snapshot);
+                    refreshDrawerDailySalesChart();
+                    if (drawerOverlay == null) return;
+                    if (drawerDailySalesStatus != null) {
+                        drawerDailySalesStatus.setText(
+                                "WASYT bilan yangilandi · " + snapshot.size()
+                                        + " ta yakunlangan savdo");
+                    }
+                    if (drawerDailySalesRefreshButton != null) {
+                        drawerDailySalesRefreshButton.setEnabled(true);
+                    }
+                });
+            } catch (Exception error) {
+                String message = error.getMessage() == null
+                        ? "WASYT savdolarini yuklab bo‘lmadi." : error.getMessage();
+                salesHandler.post(() -> {
+                    drawerSalesSyncLoading = false;
+                    if (drawerOverlay == null) return;
+                    if (drawerDailySalesStatus != null) {
+                        drawerDailySalesStatus.setText("Savdo ma’lumotlarini yuklab bo‘lmadi. Qayta urinib ko‘ring.");
+                    }
+                    if (drawerDailySalesRefreshButton != null) {
+                        drawerDailySalesRefreshButton.setEnabled(true);
+                    }
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                });
+            }
+        });
+    }
+
+    private void refreshDrawerDailySalesChart() {
+        if (drawerDailySalesChart == null) return;
+
+        ArrayList<BigDecimal> amounts = new ArrayList<>(7);
+        ArrayList<String> labels = new ArrayList<>(7);
+        BigDecimal weekTotal = BigDecimal.ZERO;
+        int weekCount = 0;
+
+        Calendar today = Calendar.getInstance();
+        today.set(Calendar.HOUR_OF_DAY, 12);
+        today.set(Calendar.MINUTE, 0);
+        today.set(Calendar.SECOND, 0);
+        today.set(Calendar.MILLISECOND, 0);
+
+        for (int offset = -6; offset <= 0; offset++) {
+            Calendar day = (Calendar) today.clone();
+            day.add(Calendar.DAY_OF_YEAR, offset);
+            BigDecimal amount = WasytSalesRepository.getDailyTotal(wasytCompletedSales, day);
+            amounts.add(amount);
+            labels.add(shortSalesWeekday(day));
+            weekTotal = weekTotal.add(amount);
+            weekCount += WasytSalesRepository.getDailyCount(wasytCompletedSales, day);
+        }
+
+        drawerDailySalesChart.setData(amounts, labels);
+        if (drawerDailySalesTotal != null) {
+            drawerDailySalesTotal.setText(formatMoney(weekTotal) + " so‘m");
+        }
+        if (drawerDailySalesStatus != null && !drawerSalesSyncLoading) {
+            if (weekCount == 0) {
+                drawerDailySalesStatus.setText(
+                        "Oxirgi 7 kunda yakunlangan savdo topilmadi.");
+            } else {
+                drawerDailySalesStatus.setText(
+                        "Oxirgi 7 kun · " + weekCount + " ta yakunlangan savdo");
+            }
+        }
+    }
+
+    private String shortSalesWeekday(Calendar date) {
+        switch (date.get(Calendar.DAY_OF_WEEK)) {
+            case Calendar.MONDAY: return "Du";
+            case Calendar.TUESDAY: return "Se";
+            case Calendar.WEDNESDAY: return "Ch";
+            case Calendar.THURSDAY: return "Pa";
+            case Calendar.FRIDAY: return "Ju";
+            case Calendar.SATURDAY: return "Sh";
+            default: return "Ya";
+        }
+    }
+
+    private final class DailySalesChartView extends View {
+        private final Paint chartPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final ArrayList<BigDecimal> values = new ArrayList<>();
+        private final ArrayList<String> dayLabels = new ArrayList<>();
+
+        DailySalesChartView(Context context) {
+            super(context);
+            setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        }
+
+        void setData(List<BigDecimal> amounts, List<String> labels) {
+            values.clear();
+            dayLabels.clear();
+            if (amounts != null) values.addAll(amounts);
+            if (labels != null) dayLabels.addAll(labels);
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            if (values.isEmpty()) return;
+
+            float left = dp(7);
+            float right = getWidth() - dp(7);
+            float top = dp(24);
+            float baseline = getHeight() - dp(25);
+            float graphHeight = Math.max(dp(35), baseline - top);
+            float graphWidth = Math.max(dp(70), right - left);
+            float step = graphWidth / 7f;
+
+            BigDecimal maxValue = BigDecimal.ZERO;
+            for (BigDecimal value : values) {
+                if (value != null && value.compareTo(maxValue) > 0) maxValue = value;
+            }
+            if (maxValue.signum() <= 0) maxValue = BigDecimal.ONE;
+
+            chartPaint.setStyle(Paint.Style.STROKE);
+            chartPaint.setStrokeWidth(dp(1));
+            chartPaint.setColor(darkMode ? 0x44FFFFFF : 0x33204D36);
+            for (int row = 0; row <= 3; row++) {
+                float y = top + graphHeight * row / 3f;
+                canvas.drawLine(left, y, right, y, chartPaint);
+            }
+
+            chartPaint.setStyle(Paint.Style.FILL);
+            chartPaint.setTextAlign(Paint.Align.CENTER);
+            chartPaint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+            chartPaint.setTextSize(dp(8));
+
+            int count = Math.min(7, values.size());
+            for (int i = 0; i < count; i++) {
+                BigDecimal value = values.get(i) == null ? BigDecimal.ZERO : values.get(i);
+                float ratio = value.signum() <= 0 ? 0f
+                        : value.divide(maxValue, 4, RoundingMode.HALF_UP).floatValue();
+                float barHeight = ratio <= 0f ? 0f : Math.max(dp(3), graphHeight * ratio * 0.82f);
+                float barWidth = Math.min(dp(22), step * 0.48f);
+                float x = left + step * i + (step - barWidth) / 2f;
+
+                chartPaint.setColor(i == count - 1
+                        ? (darkMode ? 0xFF7CE6AB : 0xFF0B9F55)
+                        : (darkMode ? 0xFF438E69 : 0xFF64B889));
+                if (barHeight > 0f) {
+                    canvas.drawRoundRect(x, baseline - barHeight, x + barWidth, baseline,
+                            dp(5), dp(5), chartPaint);
+
+                    chartPaint.setColor(darkMode ? 0xFFE5F6EA : TEXT);
+                    chartPaint.setTextSize(dp(7.5f));
+                    String amountLabel = compactSalesAmount(value);
+                    float labelY = Math.max(top + dp(9), baseline - barHeight - dp(5));
+                    canvas.drawText(amountLabel, x + barWidth / 2f, labelY, chartPaint);
+                }
+
+                chartPaint.setColor(darkMode ? 0xFFB8D5C3 : MUTED);
+                chartPaint.setTextSize(dp(8));
+                String dayLabel = i < dayLabels.size() ? dayLabels.get(i) : "";
+                canvas.drawText(dayLabel, left + step * i + step / 2f,
+                        baseline + dp(17), chartPaint);
+            }
         }
     }
 
