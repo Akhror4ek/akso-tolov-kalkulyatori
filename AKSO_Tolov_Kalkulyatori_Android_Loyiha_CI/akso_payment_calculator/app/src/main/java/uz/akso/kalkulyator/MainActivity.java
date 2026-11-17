@@ -4154,7 +4154,8 @@ public class MainActivity extends Activity {
         if (drawerDailySalesTotal != null) {
             drawerDailySalesTotal.setText(formatMoney(weekTotal) + " so‘m");
         }
-        if (drawerDailySalesStatus != null && !drawerSalesSyncLoading) {
+        if (drawerDailySalesStatus != null && !drawerSalesSyncLoading
+                && WasytSecureStore.getValidToken(this) != null) {
             if (weekCount == 0) {
                 drawerDailySalesStatus.setText(
                         "Oxirgi 7 kunda yakunlangan savdo topilmadi.");
