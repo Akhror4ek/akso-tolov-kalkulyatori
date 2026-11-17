@@ -122,7 +122,21 @@ Observed as POST with `_method=PATCH`. A successful response returned the cart w
 
 Observed HTTP 200 with a paginated `data` array and `meta` pagination information. Captured cart records included `id`, `code`, `client_id`, `sale_id`, `status`, `sale_status`, `amount`, `discount_amount`, `total_amount`, `products_count`, `created_at`, `updated_at`, `sent_at`, and cancellation fields.
 
-### 8. Cancel a picking cart
+### 8. Read seller-cart detail products
+
+`GET /company/trade/seller-cart/{cart_id}?with[0]=products.product.unit&with[1]=client&with[2]=creator.profile`
+
+The `products.product.unit` relation is required for the detailed product list. Requesting only `with[]=products` can omit the nested product card information used by the detail view.
+
+The response contains a top-level `products[]` array. Each row can include:
+- `id`, `name`, `category`, `barcode`
+- `quantity` (parse as a decimal number; preserve fractional quantities)
+- `price`, `discount`, `unit`, `unit_accuracy`
+- `is_service`, `is_bundle`, and image/description fields where applicable
+
+The Android detail screen reads these fields from the returned `products[]` array and displays each product name, quantity, unit, price and barcode.
+
+### 9. Cancel a picking cart
 
 `POST /company/trade/seller-cart/{cart_id}/cancel?_method=PATCH`
 
