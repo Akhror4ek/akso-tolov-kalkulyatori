@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
@@ -27,8 +28,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Checks public GitHub Releases and downloads the newest official AKSO Finance APK.
- * Releases are published by .github/workflows/publish-app-update.yml.
+ * Mandatory release updater for AKSO Finance.
+ * A newer official release is persisted locally and blocks app use until its
+ * package is installed. Android's final package installation confirmation is
+ * still required by the operating system.
  */
 final class AppUpdateManager {
     private static final String REPOSITORY = "Akhror4ek/akso-tolov-kalkulyatori";
@@ -38,6 +41,13 @@ final class AppUpdateManager {
     private static final String APK_MIME_TYPE = "application/vnd.android.package-archive";
     private static final String PREFS = "akso_app_updates";
     private static final String LAST_CHECK = "last_check_at";
+    private static final String PENDING_VERSION = "mandatory_pending_version";
+    private static final String PENDING_NAME = "mandatory_pending_name";
+    private static final String PENDING_TAG = "mandatory_pending_tag";
+    private static final String PENDING_NOTES = "mandatory_pending_notes";
+    private static final String PENDING_APK_URL = "mandatory_pending_apk_url";
+    private static final String DOWNLOAD_ID = "mandatory_download_id";
+    private static final String DOWNLOAD_VERSION = "mandatory_download_version";
     private static final long CHECK_INTERVAL_MS = 5L * 60L * 1000L;
     private static final int CONNECT_TIMEOUT_MS = 10000;
     private static final int READ_TIMEOUT_MS = 15000;
@@ -72,14 +82,31 @@ final class AppUpdateManager {
 
         SharedPreferences preferences =
                 activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        long installedVersion = getInstalledVersionCode(activity);
+        Update pending = readPendingUpdate(preferences);
+
+        // A successful installation clears the mandatory gate immediately.
+        if (pending != null && installedVersion >= pending.versionCode) {
+            clearPendingUpdate(preferences);
+            preferences.edit().putLong(LAST_CHECK, 0L).apply();
+            pending = null;
+        }
+
+        // Pending releases bypass the five-minute network throttle. An older
+        // version can never dismiss or skip a previously discovered update.
+        if (pending != null) {
+            showMandatoryUpdateDialog(activity, pending, installedVersion);
+            return;
+        }
+
         long now = System.currentTimeMillis();
         long lastCheck = preferences.getLong(LAST_CHECK, 0L);
         if (now - lastCheck < CHECK_INTERVAL_MS) return;
+
         synchronized (AppUpdateManager.class) {
             if (checkInProgress) return;
             checkInProgress = true;
         }
-
         preferences.edit().putLong(LAST_CHECK, now).apply();
 
         EXECUTOR.execute(() -> {
@@ -87,7 +114,7 @@ final class AppUpdateManager {
             try {
                 update = fetchLatestRelease();
             } catch (Exception ignored) {
-                // Retry at the next app opening if the network or GitHub API is unavailable.
+                // A temporary network failure does not make app startup fail.
                 preferences.edit().putLong(LAST_CHECK, 0L).apply();
             } finally {
                 synchronized (AppUpdateManager.class) {
@@ -97,14 +124,50 @@ final class AppUpdateManager {
 
             if (update == null) return;
             final Update available = update;
-            final long installedVersion = getInstalledVersionCode(activity);
-            if (available.versionCode <= installedVersion) return;
+            final long currentlyInstalled = getInstalledVersionCode(activity);
+            if (available.versionCode <= currentlyInstalled) return;
 
+            // Save before showing the dialog. If the process/activity is closed,
+            // the mandatory gate is restored on the next app open, even offline.
+            savePendingUpdate(preferences, available);
             MAIN.post(() -> {
-                if (activity.isFinishing() || activity.isDestroyed() || promptVisible) return;
-                showUpdateDialog(activity, available, installedVersion);
+                if (activity.isFinishing() || activity.isDestroyed()) return;
+                showMandatoryUpdateDialog(activity, available, currentlyInstalled);
             });
         });
+    }
+
+    private static Update readPendingUpdate(SharedPreferences preferences) {
+        long version = preferences.getLong(PENDING_VERSION, -1L);
+        String url = preferences.getString(PENDING_APK_URL, "");
+        if (version <= 0 || url == null || !isTrustedApkUrl(url)) return null;
+        return new Update(version,
+                preferences.getString(PENDING_NAME, "AKSO Finance"),
+                preferences.getString(PENDING_TAG, "v" + version),
+                preferences.getString(PENDING_NOTES, ""),
+                url);
+    }
+
+    private static void savePendingUpdate(SharedPreferences preferences, Update update) {
+        preferences.edit()
+                .putLong(PENDING_VERSION, update.versionCode)
+                .putString(PENDING_NAME, update.versionName)
+                .putString(PENDING_TAG, update.tagName)
+                .putString(PENDING_NOTES, update.notes)
+                .putString(PENDING_APK_URL, update.apkUrl)
+                .apply();
+    }
+
+    private static void clearPendingUpdate(SharedPreferences preferences) {
+        preferences.edit()
+                .remove(PENDING_VERSION)
+                .remove(PENDING_NAME)
+                .remove(PENDING_TAG)
+                .remove(PENDING_NOTES)
+                .remove(PENDING_APK_URL)
+                .remove(DOWNLOAD_ID)
+                .remove(DOWNLOAD_VERSION)
+                .apply();
     }
 
     private static Update fetchLatestRelease() throws Exception {
@@ -119,7 +182,7 @@ final class AppUpdateManager {
             connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
 
             int status = connection.getResponseCode();
-            if (status == 404) return null; // No public app release has been published yet.
+            if (status == 404) return null;
             if (status != HttpURLConnection.HTTP_OK) {
                 throw new IOException("GitHub release tekshiruvi HTTP " + status + " qaytardi.");
             }
@@ -194,67 +257,81 @@ final class AppUpdateManager {
         }
     }
 
-    private static void showUpdateDialog(Activity activity, Update update,
-                                         long installedVersion) {
+    private static void showMandatoryUpdateDialog(Activity activity, Update update,
+                                                  long installedVersion) {
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()
+                || promptVisible) return;
+
         promptVisible = true;
         StringBuilder message = new StringBuilder()
                 .append("Yangi versiya: ").append(update.versionName)
                 .append(" (").append(update.versionCode).append(")")
                 .append("\nO'rnatilgan versiya: ").append(installedVersion)
-                .append("\n\nAKSO Finance uchun yangilanish tayyor.");
+                .append("\n\nAKSO Finance'dan foydalanishni davom ettirish uchun ushbu yangilanishni o'rnatish shart.");
         if (!update.notes.isEmpty()) {
-            message.append("\n\nO'zgarishlar:\n").append(update.notes);
+            message.append("\n\nYangilanishdagi o'zgarishlar:\n").append(update.notes);
         }
-        message.append("\n\nYangilanishni yuklab o'rnatasizmi?");
+        message.append("\n\nYangilanish o'rnatilmaguncha dastur bo'limlari ochilmaydi.");
 
         AlertDialog dialog = new AlertDialog.Builder(activity)
-                .setTitle("YANGILANISH MAVJUD")
+                .setTitle("MAJBURIY YANGILANISH")
                 .setMessage(message.toString())
-                .setPositiveButton("HOZIR YANGILASH", (d, which) ->
-                        downloadUpdate(activity, update))
-                .setNegativeButton("KEYINROQ", null)
+                .setPositiveButton("YANGILASHNI DAVOM ETISH", (d, which) ->
+                        MAIN.post(() -> continueMandatoryUpdate(activity, update)))
                 .create();
+        dialog.setCancelable(false);
+        dialog.setCanceledOnTouchOutside(false);
         dialog.setOnDismissListener(d -> promptVisible = false);
         dialog.show();
     }
 
-    private static void downloadUpdate(Activity activity, Update update) {
-        if (activity.isFinishing() || activity.isDestroyed()) return;
+    private static void continueMandatoryUpdate(Activity activity, Update update) {
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
 
-        if (Build.VERSION.SDK_INT >= 26
-                && !activity.getPackageManager().canRequestPackageInstalls()) {
-            activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                    .edit().putLong(LAST_CHECK, 0L).apply();
-
-            new AlertDialog.Builder(activity)
-                    .setTitle("O'RNATISHGA RUXSAT KERAK")
-                    .setMessage("Android xavfsizligi uchun AKSO Finance APK faylini o'rnatishga ruxsat bering. Sozlamalarda 'Ushbu manbadan ruxsat berish'ni yoqing.")
-                    .setNegativeButton("BEKOR QILISH", null)
-                    .setPositiveButton("SOZLAMALARNI OCHISH", (d, which) -> {
-                        try {
-                            Intent settings = new Intent(
-                                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                                    Uri.parse("package:" + activity.getPackageName()));
-                            activity.startActivity(settings);
-                        } catch (Exception error) {
-                            Toast.makeText(activity,
-                                    "O'rnatish ruxsatini Sozlamalardan yoqing.",
-                                    Toast.LENGTH_LONG).show();
-                        }
-                    })
-                    .show();
+        SharedPreferences preferences =
+                activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        if (getInstalledVersionCode(activity) >= update.versionCode) {
+            clearPendingUpdate(preferences);
             return;
         }
 
-        try {
-            DownloadManager manager = (DownloadManager)
-                    activity.getSystemService(Context.DOWNLOAD_SERVICE);
-            if (manager == null) throw new IllegalStateException("Yuklab olish xizmati mavjud emas.");
+        if (Build.VERSION.SDK_INT >= 26
+                && !activity.getPackageManager().canRequestPackageInstalls()) {
+            showInstallPermissionDialog(activity);
+            return;
+        }
 
-            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(update.apkUrl));
+        DownloadManager manager = (DownloadManager)
+                activity.getSystemService(Context.DOWNLOAD_SERVICE);
+        if (manager == null) {
+            showMandatoryStatusDialog(activity, update,
+                    "Yuklab olish xizmati mavjud emas. Qayta urinib ko'ring.");
+            return;
+        }
+
+        long previousVersion = preferences.getLong(DOWNLOAD_VERSION, -1L);
+        long previousId = preferences.getLong(DOWNLOAD_ID, -1L);
+        if (previousVersion == update.versionCode && previousId > 0) {
+            int status = getDownloadStatus(manager, previousId);
+            if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                openDownloadedApk(activity, manager, previousId);
+                return;
+            }
+            if (status == DownloadManager.STATUS_PENDING
+                    || status == DownloadManager.STATUS_RUNNING
+                    || status == DownloadManager.STATUS_PAUSED) {
+                showMandatoryStatusDialog(activity, update,
+                        "Yangilanish yuklanmoqda. Yuklab olish tugagach, o'rnatish oynasi ochiladi.");
+                return;
+            }
+        }
+
+        try {
+            DownloadManager.Request request =
+                    new DownloadManager.Request(Uri.parse(update.apkUrl));
             request.setMimeType(APK_MIME_TYPE);
             request.setTitle("AKSO Finance " + update.versionName);
-            request.setDescription("Yangilanish yuklab olinmoqda. Tugagach bildirishnomani bosing.");
+            request.setDescription("Majburiy yangilanish yuklab olinmoqda.");
             request.setNotificationVisibility(
                     DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
             request.setAllowedOverMetered(true);
@@ -263,14 +340,98 @@ final class AppUpdateManager {
                     "AKSO-Finance-update-v" + update.versionCode + ".apk");
 
             long downloadId = manager.enqueue(request);
-            activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                    .edit().putLong("last_download_id", downloadId).apply();
-            Toast.makeText(activity,
-                    "Yangilanish yuklanmoqda. Tugagach bildirishnomani bosib o'rnating.",
-                    Toast.LENGTH_LONG).show();
+            preferences.edit()
+                    .putLong(DOWNLOAD_ID, downloadId)
+                    .putLong(DOWNLOAD_VERSION, update.versionCode)
+                    .putLong("last_download_id", downloadId)
+                    .apply();
+
+            showMandatoryStatusDialog(activity, update,
+                    "Yangilanish yuklab olinmoqda. Yuklab olish tugagach bildirishnomani bosing yoki holatni tekshiring.");
         } catch (Exception error) {
-            Toast.makeText(activity,
-                    "Yangilanishni yuklab bo'lmadi. Internetni tekshiring.",
+            showMandatoryStatusDialog(activity, update,
+                    "APK yuklab olinmadi. Internetni tekshirib, qayta urinib ko'ring.");
+        }
+    }
+
+    private static int getDownloadStatus(DownloadManager manager, long downloadId) {
+        Cursor cursor = null;
+        try {
+            cursor = manager.query(new DownloadManager.Query().setFilterById(downloadId));
+            if (cursor == null || !cursor.moveToFirst()) return -1;
+            int column = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS);
+            return column < 0 ? -1 : cursor.getInt(column);
+        } catch (Exception ignored) {
+            return -1;
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+    }
+
+    private static void showMandatoryStatusDialog(Activity activity, Update update,
+                                                  String statusMessage) {
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()
+                || promptVisible) return;
+        promptVisible = true;
+        AlertDialog dialog = new AlertDialog.Builder(activity)
+                .setTitle("YANGILANISH MAJBURIY")
+                .setMessage(statusMessage + "\n\nEski versiyada ishlashni davom ettirib bo'lmaydi.")
+                .setPositiveButton("HOLATNI TEKSHIRISH", (d, which) ->
+                        MAIN.post(() -> continueMandatoryUpdate(activity, update)))
+                .create();
+        dialog.setCancelable(false);
+        dialog.setCanceledOnTouchOutside(false);
+        dialog.setOnDismissListener(d -> promptVisible = false);
+        dialog.show();
+    }
+
+    private static void showInstallPermissionDialog(Activity activity) {
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()
+                || promptVisible) return;
+        promptVisible = true;
+        AlertDialog dialog = new AlertDialog.Builder(activity)
+                .setTitle("O'RNATISHGA RUXSAT KERAK")
+                .setMessage("Android xavfsizligi uchun AKSO Finance yangilanishini o'rnatishga ruxsat bering. Sozlamalarda 'Ushbu manbadan ruxsat berish'ni yoqing. Ruxsat berilmaguncha ilovadan foydalanib bo'lmaydi.")
+                .setPositiveButton("SOZLAMANI OCHISH", (d, which) -> MAIN.post(() -> {
+                    try {
+                        Intent settings = new Intent(
+                                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                Uri.parse("package:" + activity.getPackageName()));
+                        activity.startActivity(settings);
+                    } catch (Exception error) {
+                        Toast.makeText(activity,
+                                "O'rnatish ruxsatini Android sozlamalaridan yoqing.",
+                                Toast.LENGTH_LONG).show();
+                    }
+                }))
+                .create();
+        dialog.setCancelable(false);
+        dialog.setCanceledOnTouchOutside(false);
+        dialog.setOnDismissListener(d -> promptVisible = false);
+        dialog.show();
+    }
+
+    private static void openDownloadedApk(Activity activity, DownloadManager manager,
+                                          long downloadId) {
+        if (Build.VERSION.SDK_INT >= 26
+                && !activity.getPackageManager().canRequestPackageInstalls()) {
+            showInstallPermissionDialog(activity);
+            return;
+        }
+        try {
+            Uri apkUri = manager.getUriForDownloadedFile(downloadId);
+            if (apkUri == null) {
+                showMandatoryStatusDialog(activity, readPendingUpdate(
+                        activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)),
+                        "Yuklangan APK topilmadi. Qayta yuklashga urinib ko'ring.");
+                return;
+            }
+            Intent install = new Intent(Intent.ACTION_VIEW);
+            install.setDataAndType(apkUri, APK_MIME_TYPE);
+            install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            activity.startActivity(install);
+        } catch (Exception error) {
+            Toast.makeText(activity, "Android o'rnatish oynasini ochib bo'lmadi.",
                     Toast.LENGTH_LONG).show();
         }
     }
