@@ -71,6 +71,25 @@ public final class AppUpdateDownloadReceiver extends BroadcastReceiver {
             if (cursor != null) cursor.close();
         }
 
+        if (android.os.Build.VERSION.SDK_INT >= 26
+                && !context.getPackageManager().canRequestPackageInstalls()) {
+            try {
+                Intent settings = new Intent(
+                        android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:" + context.getPackageName()));
+                settings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(settings);
+                Toast.makeText(context,
+                        "AKSO Finance uchun APK o'rnatish ruxsatini yoqing. Ilovaga qaytgach o'rnatish davom etadi.",
+                        Toast.LENGTH_LONG).show();
+            } catch (Exception error) {
+                Toast.makeText(context,
+                        "Android sozlamalaridan AKSO Finance uchun noma'lum manbadan o'rnatishga ruxsat bering.",
+                        Toast.LENGTH_LONG).show();
+            }
+            return;
+        }
+
         Uri apkUri = manager.getUriForDownloadedFile(downloadId);
         if (apkUri == null) {
             Toast.makeText(context, "APK faylining manzili olinmadi.",
