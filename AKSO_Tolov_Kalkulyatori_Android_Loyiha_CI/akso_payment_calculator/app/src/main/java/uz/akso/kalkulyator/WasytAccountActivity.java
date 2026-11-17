@@ -31,6 +31,12 @@ public class WasytAccountActivity extends Activity {
     private TextView statusText;
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        AppUpdateManager.checkForUpdate(this);
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         if (WasytSecureStore.getValidToken(this) != null) {
