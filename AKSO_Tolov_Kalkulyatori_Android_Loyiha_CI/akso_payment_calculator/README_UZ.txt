@@ -109,3 +109,9 @@ Birinchi release'ni GitHub Actions orqali yaratishdan oldin:
 2. Workflow permissions qismida "Read and write permissions"ni tanlang.
 3. Save tugmasini bosing.
 Bu ruxsat GitHub Actions'ga GitHub Release yaratish va APK biriktirish uchun kerak.
+
+AKSO FINANCE 1.2
+----------------
+- WASYT savat tafsilotlarida mahsulotlar ro'yxatini ko'rsatish tuzatildi.
+- Savat ichidagi mahsulot nomi, miqdori, o'lchov birligi, narxi va shtrix-kodi
+  WASYT'dan to'g'ri so'raladi va ko'rsatiladi.
