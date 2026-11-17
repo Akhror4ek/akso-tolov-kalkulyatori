@@ -109,3 +109,11 @@ Birinchi release'ni GitHub Actions orqali yaratishdan oldin:
 2. Workflow permissions qismida "Read and write permissions"ni tanlang.
 3. Save tugmasini bosing.
 Bu ruxsat GitHub Actions'ga GitHub Release yaratish va APK biriktirish uchun kerak.
+
+AKSO FINANCE 1.7 — YON PANEL SCROLL TEZLIGI
+-----------------------------------------
+- Yon panel ScrollView apparat tezlashtirilgan standart chizish rejimiga o'tkazildi.
+- GlassPanel va savdo grafigidagi majburiy software rendering olib tashlandi.
+- GlassPanel chizilishidan ortiqcha clipPath yaratish olib tashlandi.
+- Yon panel ochilganda orqa sahifaga real-time blur qo'llash bekor qilindi.
+- ScrollView ortiqcha overscroll effektisiz silliq aylantirishga sozlandi.
