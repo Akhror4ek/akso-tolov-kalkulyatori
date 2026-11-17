@@ -74,7 +74,12 @@ public class GoogleAccountActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        AppUpdateManager.checkForUpdate(this);
+        // An authenticated normal launch proceeds to MainActivity, which owns
+        // the mandatory gate. Login and profile screens check here themselves.
+        boolean profileScreen = ACTION_PROFILE.equals(getIntent().getAction());
+        if (profileScreen || auth == null || auth.getCurrentUser() == null) {
+            AppUpdateManager.checkForUpdate(this);
+        }
     }
 
     private void showLogin(String message) {
