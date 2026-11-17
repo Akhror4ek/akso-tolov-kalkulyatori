@@ -295,12 +295,6 @@ final class AppUpdateManager {
             return;
         }
 
-        if (Build.VERSION.SDK_INT >= 26
-                && !activity.getPackageManager().canRequestPackageInstalls()) {
-            showInstallPermissionDialog(activity);
-            return;
-        }
-
         DownloadManager manager = (DownloadManager)
                 activity.getSystemService(Context.DOWNLOAD_SERVICE);
         if (manager == null) {
@@ -320,10 +314,11 @@ final class AppUpdateManager {
             if (status == DownloadManager.STATUS_PENDING
                     || status == DownloadManager.STATUS_RUNNING
                     || status == DownloadManager.STATUS_PAUSED) {
-                showMandatoryStatusDialog(activity, update,
-                        "Yangilanish yuklanmoqda. Yuklab olish tugagach, o'rnatish oynasi ochiladi.");
+                String progressText = getDownloadProgressText(manager, previousId);
+                showMandatoryStatusDialog(activity, update, progressText);
                 return;
             }
+            // A failed or missing download row is retried with a fresh DownloadManager request.
         }
 
         try {
@@ -336,10 +331,15 @@ final class AppUpdateManager {
                     DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
             request.setAllowedOverMetered(true);
             request.setAllowedOverRoaming(false);
+            request.setVisibleInDownloadsUi(true);
+            request.addRequestHeader("User-Agent", "AKSO-Finance-Android");
             request.setDestinationInExternalFilesDir(activity, Environment.DIRECTORY_DOWNLOADS,
                     "AKSO-Finance-update-v" + update.versionCode + ".apk");
 
             long downloadId = manager.enqueue(request);
+            if (downloadId <= 0L) {
+                throw new IllegalStateException("Android yuklab olish topshirig'ini yaratmadi.");
+            }
             preferences.edit()
                     .putLong(DOWNLOAD_ID, downloadId)
                     .putLong(DOWNLOAD_VERSION, update.versionCode)
@@ -349,9 +349,49 @@ final class AppUpdateManager {
             showMandatoryStatusDialog(activity, update,
                     "Yangilanish yuklab olinmoqda. Yuklab olish tugagach bildirishnomani bosing yoki holatni tekshiring.");
         } catch (Exception error) {
+            String detail = error.getMessage() == null ? "Noma'lum xato." : error.getMessage();
             showMandatoryStatusDialog(activity, update,
-                    "APK yuklab olinmadi. Internetni tekshirib, qayta urinib ko'ring.");
+                    "APK yuklab olishni boshlab bo'lmadi: " + detail
+                            + "\\nInternetni tekshirib, qayta urinib ko'ring.");
         }
+    }
+
+    private static String getDownloadProgressText(DownloadManager manager, long downloadId) {
+        Cursor cursor = null;
+        try {
+            cursor = manager.query(new DownloadManager.Query().setFilterById(downloadId));
+            if (cursor == null || !cursor.moveToFirst()) {
+                return "Yuklab olish topshirig'i topilmadi. Qayta urinib ko'ring.";
+            }
+            int statusColumn = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS);
+            int reasonColumn = cursor.getColumnIndex(DownloadManager.COLUMN_REASON);
+            int downloadedColumn = cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR);
+            int totalColumn = cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES);
+            int status = statusColumn < 0 ? -1 : cursor.getInt(statusColumn);
+            int reason = reasonColumn < 0 ? 0 : cursor.getInt(reasonColumn);
+            long downloaded = downloadedColumn < 0 ? 0L : cursor.getLong(downloadedColumn);
+            long total = totalColumn < 0 ? -1L : cursor.getLong(totalColumn);
+
+            if (status == DownloadManager.STATUS_PAUSED) {
+                return "Yuklab olish vaqtincha to'xtatildi. Internetni tekshiring. (Kod: "
+                        + reason + ")";
+            }
+            if (total > 0L) {
+                int percent = (int) Math.min(100L, downloaded * 100L / total);
+                return "Yangilanish yuklanmoqda: " + percent + "% ("
+                        + formatMegabytes(downloaded) + " / " + formatMegabytes(total) + ").";
+            }
+            return "Yangilanish yuklanmoqda. Iltimos, internet aloqasini tekshiring.";
+        } catch (Exception ignored) {
+            return "Yangilanish yuklanmoqda. Yuklab olish tugagach, qayta tekshiring.";
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+    }
+
+    private static String formatMegabytes(long bytes) {
+        if (bytes < 0L) return "—";
+        return String.format(java.util.Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0));
     }
 
     private static int getDownloadStatus(DownloadManager manager, long downloadId) {
