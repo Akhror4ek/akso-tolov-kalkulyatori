@@ -396,8 +396,12 @@ final class WasytSellerApi {
 
     static CartDetails getCartDetails(String token, long cartId) throws IOException {
         if (cartId <= 0) throw new IOException("Savat ID noto'g'ri.");
+        // WASYT requires the nested product relation to be expanded. Asking only
+        // for "products" omits the product card data in seller-cart details.
         JSONObject response = request("GET", "/company/trade/seller-cart/" + cartId
-                + "?with%5B%5D=client&with%5B%5D=products&with%5B%5D=creator.profile", token, null);
+                + "?with%5B0%5D=products.product.unit"
+                + "&with%5B1%5D=client"
+                + "&with%5B2%5D=creator.profile", token, null);
         JSONObject row = unwrapObject(response);
         JSONObject client = row.optJSONObject("client");
         JSONArray rows = row.optJSONArray("products");
@@ -406,14 +410,21 @@ final class WasytSellerApi {
             for (int i = 0; i < rows.length(); i++) {
                 JSONObject product = rows.optJSONObject(i);
                 if (product == null) continue;
+                String productName = firstNonEmpty(
+                        nullableText(product, "name"),
+                        nullableText(product, "value"),
+                        "Nomsiz mahsulot");
+                String productUnit = nullableText(product, "unit");
+                // WASYT's documented seller-cart detail response returns unit as
+                // a string when products.product.unit is included in the request.
                 products.add(new CartProduct(
                         product.optLong("id", -1L),
-                        product.optString("name", product.optString("value", "Nomsiz mahsulot")),
-                        product.optString("barcode", ""),
+                        productName,
+                        nullableText(product, "barcode"),
                         decimalOrZero(product.opt("quantity")),
                         product.optLong("price", product.optLong("amount", 0L)),
-                        product.optLong("discount", 0L),
-                        product.optString("unit", "")));
+                        product.optLong("discount", product.optLong("discount_amount", 0L)),
+                        productUnit));
             }
         }
         return new CartDetails(parseCart(row, client),
