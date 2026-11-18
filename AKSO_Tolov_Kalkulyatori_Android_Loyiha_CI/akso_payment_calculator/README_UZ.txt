@@ -109,3 +109,20 @@ Birinchi release'ni GitHub Actions orqali yaratishdan oldin:
 2. Workflow permissions qismida "Read and write permissions"ni tanlang.
 3. Save tugmasini bosing.
 Bu ruxsat GitHub Actions'ga GitHub Release yaratish va APK biriktirish uchun kerak.
+
+AKSO FINANCE 1.9 — SOTUVCHINING SHAXSIY SAVDO MURABBIYSI
+-------------------------------------------------------
+- Shaxsiy tahlil kunlik, haftalik va oylik savdolarni chuqurroq tahlil qiladi.
+- Hafta natijasi o'tgan haftaning ayni o'tgan kunlari bilan taqqoslanadi.
+- O'rtacha chek, mijozning qayta xaridi, savatdagi mahsulotlar soni,
+  chegirma ulushi va mahsulot konsentratsiyasi ko'rsatiladi.
+- So'nggi 5 ta yakunlangan savdo birma-bir tahlil qilinadi: chek, mahsulot
+  tarkibi, oylik o'rtacha chekdan farqi va chegirma ulushi.
+- Bir savatda birga uchragan mahsulot juftliklari asosida ehtiyotkor
+  qo'shimcha savdo tavsiyalari yaratiladi.
+- Eng faol hafta kuni va savdo vaqt oralig'i aniqlanadi.
+- Joriy oylik sur'at asosidagi prognoz alohida taxmin sifatida ko'rsatiladi.
+- Motivatsiya, amaliy tavsiya, e'tibor signali, sotuvchining kuchli jihati
+  va keyingi savdo uchun bitta aniq vazifa avtomatik shakllanadi.
+- Foyda/tannarx yoki ombor qoldig'i mavjud bo'lmasa, ular haqida xulosa
+  chiqarilmaydi; barcha tavsiyalar WASYT'dagi yakunlangan savdolarga tayangan.
