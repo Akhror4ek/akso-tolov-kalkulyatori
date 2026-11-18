@@ -4314,6 +4314,7 @@ public class MainActivity extends Activity {
 
         SimpleDateFormat dateFormat = new SimpleDateFormat("dd.MM  HH:mm", Locale.getDefault());
         StringBuilder report = new StringBuilder();
+
         for (int i = 0; i < snapshot.recentSales.size(); i++) {
             WasytSellerApi.Cart sale = snapshot.recentSales.get(i);
             if (sale == null) continue;
@@ -4325,11 +4326,19 @@ public class MainActivity extends Activity {
                     ? sale.products.size() : Math.max(0, sale.productsCount);
             Calendar saleDate = WasytSalesRepository.getSaleDate(sale);
 
-            if (report.length() > 0) report.append("\\n\\n");
-            report.append(i + 1).append(") SAVDO #").append(code);
-            if (saleDate != null) report.append("  ·  ").append(dateFormat.format(saleDate.getTime()));
-            report.append("\\n").append(formatMoney(BigDecimal.valueOf(sale.totalAmount)))
-                    .append(" so'm  ·  ").append(itemCount).append(" ta mahsulot qatori.");
+            // Real newline characters keep every sale in its own readable block.
+            if (report.length() > 0) report.append('\n').append('\n');
+
+            report.append(i + 1).append(". SAVDO #").append(code);
+            if (saleDate != null) {
+                report.append("  ·  ").append(dateFormat.format(saleDate.getTime()));
+            }
+
+            report.append('\n')
+                    .append("SUMMA: ")
+                    .append(formatMoney(BigDecimal.valueOf(sale.totalAmount)))
+                    .append(" so'm  ·  ")
+                    .append(itemCount).append(" ta mahsulot qatori");
 
             if (sale.products != null && !sale.products.isEmpty()) {
                 ArrayList<String> names = new ArrayList<>();
@@ -4339,11 +4348,13 @@ public class MainActivity extends Activity {
                     if (names.size() == 2) break;
                 }
                 if (!names.isEmpty()) {
-                    report.append("\\nTarkib: ").append(joinSalesNames(names, " + "));
+                    report.append('\n').append("TARKIB: ")
+                            .append(joinSalesNames(names, " + "));
                     if (sale.products.size() > names.size()) {
-                        report.append(" va yana ").append(sale.products.size() - names.size()).append(" qator");
+                        report.append(" va yana ")
+                                .append(sale.products.size() - names.size())
+                                .append(" qator");
                     }
-                    report.append(".");
                 }
             }
 
@@ -4352,14 +4363,13 @@ public class MainActivity extends Activity {
                         .subtract(snapshot.monthAverageCheck);
                 BigDecimal percent = delta.multiply(BigDecimal.valueOf(100))
                         .divide(snapshot.monthAverageCheck, 0, RoundingMode.HALF_UP);
+                report.append('\n').append("O'RTACHA CHEKKA NISBATAN: ");
                 if (percent.signum() > 0) {
-                    report.append("\\nChek oylik o'rtachadan +")
-                            .append(percent.toPlainString()).append("% yuqori.");
+                    report.append('+').append(percent.toPlainString()).append("% yuqori");
                 } else if (percent.signum() < 0) {
-                    report.append("\\nChek oylik o'rtachadan ")
-                            .append(percent.toPlainString()).append("% past.");
+                    report.append(percent.toPlainString()).append("% past");
                 } else {
-                    report.append("\\nChek oylik o'rtacha bilan teng.");
+                    report.append("oylik o'rtacha bilan teng");
                 }
             }
 
@@ -4370,16 +4380,19 @@ public class MainActivity extends Activity {
                     BigDecimal discountPercent = BigDecimal.valueOf(sale.discountAmount)
                             .multiply(BigDecimal.valueOf(100))
                             .divide(baseAmount, 0, RoundingMode.HALF_UP);
-                    report.append(" Chegirma ulushi: ")
-                            .append(discountPercent.toPlainString()).append("%.");
+                    report.append('\n').append("CHEGIRMA: ")
+                            .append(discountPercent.toPlainString()).append("%");
                 }
             } else {
-                report.append(" Chegirma qayd etilmagan.");
+                report.append('\n').append("CHEGIRMA: qayd etilmagan");
             }
+
+            report.append('\n').append("────────────────────");
         }
 
         if (snapshot.monthAverageCheck.signum() > 0) {
-            report.append("\\n\\nMezon: chek joriy oyning o'rtacha cheki bilan solishtirilgan; bu foyda marjasini emas, savdo qiymatini ko'rsatadi.");
+            report.append('\n').append('\n')
+                    .append("Taqqoslash mezoni: joriy oyning o'rtacha cheki. Bu savdo qiymatini ko'rsatadi, foyda marjasini emas.");
         }
         drawerSellerLastSale.setText(report.toString());
     }
