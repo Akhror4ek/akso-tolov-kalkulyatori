@@ -4426,7 +4426,7 @@ public class MainActivity extends Activity {
             return;
         }
 
-        if (snapshot.salesWithProductDetails > 0
+        if ((snapshot.singleItemSaleCount + snapshot.multiItemSaleCount) > 0
                 && snapshot.averageItemsPerSale.compareTo(new BigDecimal("1.5")) < 0) {
             drawerSellerSuggestion.setText("O'rtacha savat tarkibi "
                     + formatSalesQuantity(snapshot.averageItemsPerSale)
