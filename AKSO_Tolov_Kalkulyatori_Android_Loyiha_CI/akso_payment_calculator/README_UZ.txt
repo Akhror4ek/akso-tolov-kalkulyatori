@@ -109,3 +109,11 @@ Birinchi release'ni GitHub Actions orqali yaratishdan oldin:
 2. Workflow permissions qismida "Read and write permissions"ni tanlang.
 3. Save tugmasini bosing.
 Bu ruxsat GitHub Actions'ga GitHub Release yaratish va APK biriktirish uchun kerak.
+
+AKSO FINANCE 1.9.1 — SO'NGGI 5 SAVDO HISOBOTI FORMAT
+----------------------------------------------------
+- So'nggi 5 savdo hisobotidagi literal \\n belgisi o'rniga haqiqiy yangi
+  qatorlar qo'llanadi.
+- Har bir savdo alohida blokda: raqam/sana, summa, mahsulot tarkibi,
+  o'rtacha chekdan farqi va chegirma ulushi tartibida ko'rsatiladi.
+- Savdolar orasida vizual ajratgich qo'shildi.
