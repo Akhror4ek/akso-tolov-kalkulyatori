@@ -4097,7 +4097,7 @@ public class MainActivity extends Activity {
         panel.addView(drawerSellerMicroStats, matchWrap());
 
         drawerSellerLastSale = addDrawerInsightBlock(panel,
-                "OXIRGI SAVDODAN XULOSA", 0xFF9CCBFF);
+                "SO'NGGI 5 SAVDO — BIRMA-BIR TAHLIL", 0xFF9CCBFF);
         drawerSellerMotivation = addDrawerInsightBlock(panel,
                 "MOTIVATSIYA", 0xFF73DFA5);
         drawerSellerSuggestion = addDrawerInsightBlock(panel,
@@ -4307,52 +4307,81 @@ public class MainActivity extends Activity {
 
     private void updateSellerLastSale(WasytSalesInsights.Snapshot snapshot) {
         if (drawerSellerLastSale == null) return;
-        WasytSellerApi.Cart sale = snapshot.latestSale;
-        if (sale == null) {
+        if (snapshot.recentSales == null || snapshot.recentSales.isEmpty()) {
             drawerSellerLastSale.setText("Hozircha yakunlangan savdo aniqlanmadi. Birinchi savdo qayd etilgach, uning tarkibi, summasi va o'rtacha chekingiz bilan farqi shu yerda tahlil qilinadi.");
             return;
         }
 
-        String code = sale.saleId > 0 ? String.valueOf(sale.saleId)
-                : (sale.code == null || sale.code.isEmpty() ? String.valueOf(sale.id) : sale.code);
-        int itemCount = sale.products != null && !sale.products.isEmpty()
-                ? sale.products.size() : Math.max(0, sale.productsCount);
-        StringBuilder detail = new StringBuilder()
-                .append("So'nggi yakunlangan savdo #").append(code)
-                .append(" — ").append(formatMoney(BigDecimal.valueOf(sale.totalAmount)))
-                .append(" so'm. Savat: ").append(itemCount).append(" ta mahsulot qatori.");
+        SimpleDateFormat dateFormat = new SimpleDateFormat("dd.MM  HH:mm", Locale.getDefault());
+        StringBuilder report = new StringBuilder();
+        for (int i = 0; i < snapshot.recentSales.size(); i++) {
+            WasytSellerApi.Cart sale = snapshot.recentSales.get(i);
+            if (sale == null) continue;
 
-        if (sale.products != null && !sale.products.isEmpty()) {
-            ArrayList<String> names = new ArrayList<>();
-            for (WasytSellerApi.CartProduct product : sale.products) {
-                if (product == null || product.name.trim().isEmpty()) continue;
-                if (!names.contains(product.name.trim())) names.add(product.name.trim());
-                if (names.size() == 3) break;
+            String code = sale.saleId > 0 ? String.valueOf(sale.saleId)
+                    : (sale.code == null || sale.code.isEmpty()
+                    ? String.valueOf(sale.id) : sale.code);
+            int itemCount = sale.products != null && !sale.products.isEmpty()
+                    ? sale.products.size() : Math.max(0, sale.productsCount);
+            Calendar saleDate = WasytSalesRepository.getSaleDate(sale);
+
+            if (report.length() > 0) report.append("\\n\\n");
+            report.append(i + 1).append(") SAVDO #").append(code);
+            if (saleDate != null) report.append("  ·  ").append(dateFormat.format(saleDate.getTime()));
+            report.append("\\n").append(formatMoney(BigDecimal.valueOf(sale.totalAmount)))
+                    .append(" so'm  ·  ").append(itemCount).append(" ta mahsulot qatori.");
+
+            if (sale.products != null && !sale.products.isEmpty()) {
+                ArrayList<String> names = new ArrayList<>();
+                for (WasytSellerApi.CartProduct product : sale.products) {
+                    if (product == null || product.name.trim().isEmpty()) continue;
+                    if (!names.contains(product.name.trim())) names.add(product.name.trim());
+                    if (names.size() == 2) break;
+                }
+                if (!names.isEmpty()) {
+                    report.append("\\nTarkib: ").append(joinSalesNames(names, " + "));
+                    if (sale.products.size() > names.size()) {
+                        report.append(" va yana ").append(sale.products.size() - names.size()).append(" qator");
+                    }
+                    report.append(".");
+                }
             }
-            if (!names.isEmpty()) {
-                detail.append(" Tarkib: ").append(joinSalesNames(names, " · "));
-                if (sale.products.size() > names.size()) detail.append(" va boshqalar");
-                detail.append(".");
+
+            if (snapshot.monthAverageCheck.signum() > 0) {
+                BigDecimal delta = BigDecimal.valueOf(sale.totalAmount)
+                        .subtract(snapshot.monthAverageCheck);
+                BigDecimal percent = delta.multiply(BigDecimal.valueOf(100))
+                        .divide(snapshot.monthAverageCheck, 0, RoundingMode.HALF_UP);
+                if (percent.signum() > 0) {
+                    report.append("\\nChek oylik o'rtachadan +")
+                            .append(percent.toPlainString()).append("% yuqori.");
+                } else if (percent.signum() < 0) {
+                    report.append("\\nChek oylik o'rtachadan ")
+                            .append(percent.toPlainString()).append("% past.");
+                } else {
+                    report.append("\\nChek oylik o'rtacha bilan teng.");
+                }
+            }
+
+            if (sale.discountAmount > 0L) {
+                BigDecimal baseAmount = BigDecimal.valueOf(Math.max(0L, sale.totalAmount))
+                        .add(BigDecimal.valueOf(sale.discountAmount));
+                if (baseAmount.signum() > 0) {
+                    BigDecimal discountPercent = BigDecimal.valueOf(sale.discountAmount)
+                            .multiply(BigDecimal.valueOf(100))
+                            .divide(baseAmount, 0, RoundingMode.HALF_UP);
+                    report.append(" Chegirma ulushi: ")
+                            .append(discountPercent.toPlainString()).append("%.");
+                }
+            } else {
+                report.append(" Chegirma qayd etilmagan.");
             }
         }
 
         if (snapshot.monthAverageCheck.signum() > 0) {
-            BigDecimal delta = BigDecimal.valueOf(sale.totalAmount)
-                    .subtract(snapshot.monthAverageCheck);
-            BigDecimal percent = delta.multiply(BigDecimal.valueOf(100))
-                    .divide(snapshot.monthAverageCheck, 0, RoundingMode.HALF_UP);
-            if (percent.signum() > 0) {
-                detail.append(" Bu chek oylik o'rtacha chekingizdan ")
-                        .append(percent.toPlainString()).append("% yuqori — yaxshi natija.");
-            } else if (percent.signum() < 0) {
-                detail.append(" Bu chek oylik o'rtacha chekingizdan ")
-                        .append(percent.abs().toPlainString())
-                        .append("% past. Mijoz ehtiyojiga mos qo'shimcha qiymat taklifini sinab ko'ring.");
-            } else {
-                detail.append(" Bu chek oylik o'rtacha natijangizga teng.");
-            }
+            report.append("\\n\\nMezon: chek joriy oyning o'rtacha cheki bilan solishtirilgan; bu foyda marjasini emas, savdo qiymatini ko'rsatadi.");
         }
-        drawerSellerLastSale.setText(detail.toString());
+        drawerSellerLastSale.setText(report.toString());
     }
 
     private String joinSalesNames(List<String> names, String separator) {
