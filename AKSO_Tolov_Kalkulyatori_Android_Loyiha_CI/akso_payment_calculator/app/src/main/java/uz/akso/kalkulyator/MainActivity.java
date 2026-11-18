@@ -4191,7 +4191,9 @@ public class MainActivity extends Activity {
                     ? snapshot.repeatCustomerCount + "/" + snapshot.uniqueCustomerCount
                             + " qayta kelgan mijoz"
                     : "mijoz telefoni qayd etilmagan";
-            String basketText = snapshot.salesWithProductDetails > 0
+            int salesWithProductDetails = snapshot.singleItemSaleCount
+                    + snapshot.multiItemSaleCount;
+            String basketText = salesWithProductDetails > 0
                     ? formatSalesQuantity(snapshot.averageItemsPerSale) + " qator/savat"
                     : "savat tarkibi yo'q";
             drawerSellerMicroStats.setText("O'RTACHA CHEK: "
