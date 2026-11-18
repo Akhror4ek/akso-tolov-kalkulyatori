@@ -158,9 +158,13 @@ public class MainActivity extends Activity {
     private TextView drawerMonthSalesMeta;
     private LinearLayout drawerTopProductsContainer;
     private TextView drawerTopCategory;
+    private TextView drawerSellerMicroStats;
+    private TextView drawerSellerLastSale;
     private TextView drawerSellerMotivation;
     private TextView drawerSellerSuggestion;
     private TextView drawerSellerCritique;
+    private TextView drawerSellerStrength;
+    private TextView drawerSellerNextStep;
     private TextView drawerInsightsStatus;
     private Button drawerDailySalesRefreshButton;
     private boolean drawerSalesSyncLoading = false;
@@ -3929,9 +3933,13 @@ public class MainActivity extends Activity {
         drawerMonthSalesMeta = null;
         drawerTopProductsContainer = null;
         drawerTopCategory = null;
+        drawerSellerMicroStats = null;
+        drawerSellerLastSale = null;
         drawerSellerMotivation = null;
         drawerSellerSuggestion = null;
         drawerSellerCritique = null;
+        drawerSellerStrength = null;
+        drawerSellerNextStep = null;
         drawerInsightsStatus = null;
         drawerSelectedArticleIndex = -1;
     }
@@ -4083,12 +4091,23 @@ public class MainActivity extends Activity {
         drawerTopCategory.setPadding(0, dp(6), 0, dp(7));
         panel.addView(drawerTopCategory, matchWrap());
 
+        drawerSellerMicroStats = text("O'RTACHA CHEK  ·  QAYTGAN MIJOZLAR  ·  SAVAT TARKIBI", 7, MUTED, true);
+        drawerSellerMicroStats.setLineSpacing(dp(2), 1f);
+        drawerSellerMicroStats.setPadding(0, dp(5), 0, dp(2));
+        panel.addView(drawerSellerMicroStats, matchWrap());
+
+        drawerSellerLastSale = addDrawerInsightBlock(panel,
+                "OXIRGI SAVDODAN XULOSA", 0xFF9CCBFF);
         drawerSellerMotivation = addDrawerInsightBlock(panel,
                 "MOTIVATSIYA", 0xFF73DFA5);
         drawerSellerSuggestion = addDrawerInsightBlock(panel,
                 "AMALIY TAKLIF", 0xFF8ED9C1);
         drawerSellerCritique = addDrawerInsightBlock(panel,
                 "E'TIBOR BERISH KERAK", 0xFFE9C27B);
+        drawerSellerStrength = addDrawerInsightBlock(panel,
+                "SOTUVCHINING KUCHI", 0xFFB8D5FF);
+        drawerSellerNextStep = addDrawerInsightBlock(panel,
+                "KEYINGI SAVDO UCHUN 1 QADAM", 0xFFFFD18A);
 
         drawerInsightsStatus = text("WASYT savdolari yuklanmoqda…", 7, MUTED, false);
         drawerInsightsStatus.setPadding(0, dp(7), 0, 0);
@@ -4167,6 +4186,20 @@ public class MainActivity extends Activity {
         drawerMonthSalesMeta.setText(snapshot.month.saleCount + " savdo · "
                 + trendLabel(snapshot.month.total, snapshot.previousMonthComparable.total));
 
+        if (drawerSellerMicroStats != null) {
+            String repeatText = snapshot.uniqueCustomerCount > 0
+                    ? snapshot.repeatCustomerCount + "/" + snapshot.uniqueCustomerCount
+                            + " qayta kelgan mijoz"
+                    : "mijoz telefoni qayd etilmagan";
+            String basketText = snapshot.salesWithProductDetails > 0
+                    ? formatSalesQuantity(snapshot.averageItemsPerSale) + " qator/savat"
+                    : "savat tarkibi yo'q";
+            drawerSellerMicroStats.setText("O'RTACHA CHEK: "
+                    + formatMoney(snapshot.monthAverageCheck) + " so'm"
+                    + "  ·  MIJOZ SADOQATI: " + repeatText
+                    + "  ·  O'RTACHA SAVAT: " + basketText);
+        }
+
         if (drawerTopProductsContainer != null) {
             drawerTopProductsContainer.removeAllViews();
             if (!snapshot.hasProductDetails || snapshot.topProducts.isEmpty()) {
@@ -4198,8 +4231,8 @@ public class MainActivity extends Activity {
                     String quantity = formatSalesQuantity(product.quantity);
                     if (!product.unit.isEmpty()) quantity += " " + product.unit;
                     String kind = product.kind.isEmpty() ? "Tovar" : product.kind;
-                    TextView meta = text(quantity + " · " + product.lineCount
-                            + " marta uchragan · " + kind, 7, MUTED, false);
+                    TextView meta = text(quantity + " · " + product.transactionCount
+                            + " ta savdoda uchragan · " + kind, 7, MUTED, false);
                     details.addView(meta, matchWrap());
                 }
             }
@@ -4215,9 +4248,12 @@ public class MainActivity extends Activity {
             }
         }
 
+        updateSellerLastSale(snapshot);
         updateSellerMotivation(snapshot);
         updateSellerRecommendation(snapshot);
         updateSellerCritique(snapshot);
+        updateSellerStrength(snapshot);
+        updateSellerNextStep(snapshot);
 
         drawerInsightsStatus.setText(snapshot.hasProductDetails
                 ? "Tovarlar tahlili: " + snapshot.productPeriodLabel
@@ -4239,6 +4275,8 @@ public class MainActivity extends Activity {
                     8, MUTED, false), matchWrap());
         }
         if (drawerTopCategory != null) drawerTopCategory.setText("Faol kategoriya: —");
+        if (drawerSellerMicroStats != null) drawerSellerMicroStats.setText("Tahlil uchun WASYT ma'lumotlari kerak.");
+        if (drawerSellerLastSale != null) drawerSellerLastSale.setText(message);
         if (drawerSellerMotivation != null) drawerSellerMotivation.setText(message);
         if (drawerSellerSuggestion != null) {
             drawerSellerSuggestion.setText("WASYT akkauntini ulang va savdolarni yangilang.");
@@ -4246,6 +4284,8 @@ public class MainActivity extends Activity {
         if (drawerSellerCritique != null) {
             drawerSellerCritique.setText("Hozircha tahlil uchun savdo ma'lumotlari yo'q.");
         }
+        if (drawerSellerStrength != null) drawerSellerStrength.setText("Savdo tarixi yuklangach, kuchli jihatlaringiz aniqlanadi.");
+        if (drawerSellerNextStep != null) drawerSellerNextStep.setText("Avval WASYT savdo ma'lumotlarini ulang.");
         drawerInsightsStatus.setText(message);
     }
 
@@ -4263,38 +4303,152 @@ public class MainActivity extends Activity {
         return quantity == null ? "0" : quantity.stripTrailingZeros().toPlainString();
     }
 
+    private void updateSellerLastSale(WasytSalesInsights.Snapshot snapshot) {
+        if (drawerSellerLastSale == null) return;
+        WasytSellerApi.Cart sale = snapshot.latestSale;
+        if (sale == null) {
+            drawerSellerLastSale.setText("Hozircha yakunlangan savdo aniqlanmadi. Birinchi savdo qayd etilgach, uning tarkibi, summasi va o'rtacha chekingiz bilan farqi shu yerda tahlil qilinadi.");
+            return;
+        }
+
+        String code = sale.saleId > 0 ? String.valueOf(sale.saleId)
+                : (sale.code == null || sale.code.isEmpty() ? String.valueOf(sale.id) : sale.code);
+        int itemCount = sale.products != null && !sale.products.isEmpty()
+                ? sale.products.size() : Math.max(0, sale.productsCount);
+        StringBuilder detail = new StringBuilder()
+                .append("So'nggi yakunlangan savdo #").append(code)
+                .append(" — ").append(formatMoney(BigDecimal.valueOf(sale.totalAmount)))
+                .append(" so'm. Savat: ").append(itemCount).append(" ta mahsulot qatori.");
+
+        if (sale.products != null && !sale.products.isEmpty()) {
+            ArrayList<String> names = new ArrayList<>();
+            for (WasytSellerApi.CartProduct product : sale.products) {
+                if (product == null || product.name.trim().isEmpty()) continue;
+                if (!names.contains(product.name.trim())) names.add(product.name.trim());
+                if (names.size() == 3) break;
+            }
+            if (!names.isEmpty()) {
+                detail.append(" Tarkib: ").append(joinSalesNames(names, " · "));
+                if (sale.products.size() > names.size()) detail.append(" va boshqalar");
+                detail.append(".");
+            }
+        }
+
+        if (snapshot.monthAverageCheck.signum() > 0) {
+            BigDecimal delta = BigDecimal.valueOf(sale.totalAmount)
+                    .subtract(snapshot.monthAverageCheck);
+            BigDecimal percent = delta.multiply(BigDecimal.valueOf(100))
+                    .divide(snapshot.monthAverageCheck, 0, RoundingMode.HALF_UP);
+            if (percent.signum() > 0) {
+                detail.append(" Bu chek oylik o'rtacha chekingizdan ")
+                        .append(percent.toPlainString()).append("% yuqori — yaxshi natija.");
+            } else if (percent.signum() < 0) {
+                detail.append(" Bu chek oylik o'rtacha chekingizdan ")
+                        .append(percent.abs().toPlainString())
+                        .append("% past. Mijoz ehtiyojiga mos qo'shimcha qiymat taklifini sinab ko'ring.");
+            } else {
+                detail.append(" Bu chek oylik o'rtacha natijangizga teng.");
+            }
+        }
+        drawerSellerLastSale.setText(detail.toString());
+    }
+
+    private String joinSalesNames(List<String> names, String separator) {
+        StringBuilder result = new StringBuilder();
+        if (names == null) return "";
+        for (String name : names) {
+            if (name == null || name.trim().isEmpty()) continue;
+            if (result.length() > 0) result.append(separator);
+            result.append(name.trim());
+        }
+        return result.toString();
+    }
+
     private void updateSellerMotivation(WasytSalesInsights.Snapshot snapshot) {
         if (drawerSellerMotivation == null) return;
+
+        StringBuilder message = new StringBuilder();
         if (snapshot.today.saleCount > 0) {
-            drawerSellerMotivation.setText("Bugun " + snapshot.today.saleCount
-                    + " ta savdo yakunlab, " + formatMoney(snapshot.today.total)
-                    + " so'm tushum qildingiz. Natijani saqlang: har bir mijozga e'tibor va sifatli xizmatni davom ettiring.");
+            message.append("Bugun ").append(snapshot.today.saleCount)
+                    .append(" ta savdoni yakunlab, ")
+                    .append(formatMoney(snapshot.today.total)).append(" so'm tushum qildingiz.");
+            if (snapshot.todayAverageCheck.signum() > 0) {
+                message.append(" Bugungi o'rtacha chek — ")
+                        .append(formatMoney(snapshot.todayAverageCheck)).append(" so'm.");
+            }
         } else if (snapshot.week.saleCount > 0) {
-            drawerSellerMotivation.setText("Bugun hali yakunlangan savdo qayd etilmadi, ammo shu haftada "
-                    + snapshot.week.saleCount + " ta savdo va "
-                    + formatMoney(snapshot.week.total)
-                    + " so'm natija bor. Kuningizni faol yakunlashga hali imkon bor.");
+            message.append("Bugun hali savdo qayd etilmagan, ammo shu haftada ")
+                    .append(snapshot.week.saleCount).append(" ta savdo va ")
+                    .append(formatMoney(snapshot.week.total)).append(" so'm natija bor.");
         } else if (snapshot.month.saleCount > 0) {
-            drawerSellerMotivation.setText("Shu oyda " + snapshot.month.saleCount
-                    + " ta savdo va " + formatMoney(snapshot.month.total)
-                    + " so'm tushum qayd etilgan. Shu natijani muntazam kunlik faollikka aylantiring.");
+            message.append("Shu oyda ").append(snapshot.month.saleCount)
+                    .append(" ta yakunlangan savdo va ")
+                    .append(formatMoney(snapshot.month.total)).append(" so'm tushum to'plandi.");
         } else {
-            drawerSellerMotivation.setText("Tanlangan WASYT ma'lumotlarida yakunlangan savdo topilmadi. Birinchi savdoni amalga oshirish uchun mijoz ehtiyojini aniqlashdan boshlang.");
+            message.append("Hozircha tanlangan WASYT tarixida yakunlangan savdo yo'q. Har bir yangi suhbat — keyingi natija uchun imkoniyat.");
         }
+
+        if (snapshot.previousWeek.saleCount > 0 && snapshot.week.saleCount > 0) {
+            BigDecimal change = percentageChange(snapshot.week.total, snapshot.previousWeek.total);
+            if (change.signum() > 0) {
+                message.append(" Bir xil ").append(snapshot.comparedWeekDays)
+                        .append(" kunlik taqqoslashda o'tgan haftadan ")
+                        .append(change.abs().toPlainString()).append("% oldindasiz.");
+            } else if (change.signum() < 0) {
+                message.append(" O'tgan haftaning ayni kunlariga nisbatan ")
+                        .append(change.abs().toPlainString())
+                        .append("% pasayish bor, ammo uni keyingi savdolar bilan o'zgartirish mumkin.");
+            }
+        }
+
+        if (snapshot.repeatCustomerCount > 0) {
+            message.append(" Tarixda ").append(snapshot.repeatCustomerCount)
+                    .append(" na mijoz kamida ikki marta xarid qilgan — ishonchni qayta xaridga aylantiryapsiz.");
+        }
+
+        if (snapshot.largestSale != null) {
+            message.append(" Joriy oy rekord cheki: ")
+                    .append(formatMoney(BigDecimal.valueOf(snapshot.largestSale.totalAmount)))
+                    .append(" so'm.");
+        }
+        drawerSellerMotivation.setText(message.toString());
     }
 
     private void updateSellerRecommendation(WasytSalesInsights.Snapshot snapshot) {
         if (drawerSellerSuggestion == null) return;
+
+        if (snapshot.pairedSaleCount >= 2 && !snapshot.pairedProducts.isEmpty()) {
+            drawerSellerSuggestion.setText("Savatlarda “" + snapshot.pairedProducts
+                    + "” birga " + snapshot.pairedSaleCount
+                    + " marta uchragan. Bu juftlikni mos ehtiyojli mijozlarga tayyor kombinatsiya sifatida ko'rsating: nima uchun birga foydali ekanini tushuntiring, lekin keraksiz xaridga undamang.");
+            return;
+        }
+
+        if (snapshot.salesWithProductDetails > 0
+                && snapshot.averageItemsPerSale.compareTo(new BigDecimal("1.5")) < 0) {
+            drawerSellerSuggestion.setText("O'rtacha savat tarkibi "
+                    + formatSalesQuantity(snapshot.averageItemsPerSale)
+                    + " ta mahsulot qatori. Keyingi suhbatda “Bunga qo'shib yana qanday ehtiyojingiz bor?” deb so'rang. Faqat haqiqatan mos keladigan ikkinchi mahsulotni taklif qiling.");
+            return;
+        }
+
+        if (snapshot.repeatCustomerCount > 0) {
+            drawerSellerSuggestion.setText("Sizda qayta kelgan "
+                    + snapshot.repeatCustomerCount
+                    + " na mijoz bor. Ularning avvalgi xaridini WASYT'dan tekshirib, mahsulotga mos parvarish vositasi, aksessuar yoki keyingi ehtiyojini so'rang. Eski xarid ma'lumotini faqat xizmatni yaxshilash uchun ishlating.");
+            return;
+        }
+
         if (!snapshot.topProducts.isEmpty()) {
             WasytSalesInsights.ProductStat top = snapshot.topProducts.get(0);
-            drawerSellerSuggestion.setText("“" + top.name + "” sizning "
+            drawerSellerSuggestion.setText("“" + top.name + "” "
                     + snapshot.productPeriodLabel.toLowerCase(Locale.getDefault())
-                    + " davringizda eng ko'p uchragan tovar. Uning mavjudligini nazorat qiling va mijozga shu mahsulotga mos qo'shimcha tovar yoki qulay to'lov usulini ham taklif qiling.");
-        } else if (snapshot.week.saleCount > 0 || snapshot.month.saleCount > 0) {
-            drawerSellerSuggestion.setText("Savdo summalari bor, ammo mahsulot tarkibi WASYT'dan qaytmadi. Savdo va mahsulotlar ma'lumotini qayta yangilab, keyin tovarlar bo'yicha takliflarni shakllantiring.");
-        } else {
-            drawerSellerSuggestion.setText("Har bir mijoz bilan suhbatda ehtiyojini aniqlang, mos mahsulotni ko'rsating va qo'shimcha ehtiyojini so'rang.");
+                    + " davrida " + top.transactionCount
+                    + " ta savdoda qatnashgan. Ushbu mahsulot bo'yicha 3 savol tayyorlang: kimga mos, qaysi muammoni hal qiladi, qaysi variant bilan taqqoslanadi. Shunda mahsulotni shunchaki ko'rsatmay, ehtiyojga bog'lab sotasiz.");
+            return;
         }
+
+        drawerSellerSuggestion.setText("Savdo summalari bor, ammo mahsulot qatorlari hali yetarli emas. WASYT savat tafsilotlarini yangilang; tarkib kelgach, birga sotilgan mahsulotlar va aniq takliflar shakllanadi.");
     }
 
     private void updateSellerCritique(WasytSalesInsights.Snapshot snapshot) {
@@ -4305,27 +4459,105 @@ public class MainActivity extends Activity {
         if (previous.signum() > 0 && current.compareTo(previous) < 0) {
             BigDecimal drop = previous.subtract(current).multiply(BigDecimal.valueOf(100))
                     .divide(previous, 0, RoundingMode.HALF_UP);
-            drawerSellerCritique.setText("Diqqat: joriy haftaning tushumi oldingi haftaga nisbatan "
-                    + drop.toPlainString() + "% past. Mijozlar bilan qayta aloqa qiling, savdo kamaygan kunlarni ko'rib chiqing va sababini aniqlang.");
+            drawerSellerCritique.setText("Diqqat: joriy haftaning o'tgan haftadagi ayni "
+                    + snapshot.comparedWeekDays + " kuni bilan solishtirganda tushum "
+                    + drop.toPlainString() + "% past. Bu to'liq hafta bilan emas, teng kunlar bilan taqqoslangan. Savdo sust kunlarini va mijozlar bilan suhbat bosqichlarini tekshiring.");
             return;
         }
 
-        BigDecimal discount = snapshot.week.discountTotal;
-        BigDecimal amount = snapshot.week.total.add(discount);
-        if (discount.signum() > 0 && amount.signum() > 0
-                && discount.multiply(BigDecimal.valueOf(100))
-                .divide(amount, 0, RoundingMode.HALF_UP)
-                .compareTo(BigDecimal.valueOf(8)) >= 0) {
-            drawerSellerCritique.setText("E'tibor: shu haftada "
-                    + formatMoney(discount) + " so'm chegirma qo'llangan. Yangi chegirma berishdan oldin mahsulot tannarxi va foyda marjasini tekshiring.");
+        if (snapshot.weekDiscountRate.compareTo(BigDecimal.TEN) >= 0) {
+            drawerSellerCritique.setText("Chegirma signali: shu hafta server qayd etgan chegirmalar tushumdan oldingi summaning "
+                    + formatSalesQuantity(snapshot.weekDiscountRate)
+                    + "% ini tashkil qildi. Bu foyda yo'qoldi degani emas — tannarx ma'lumoti bu tahlilda yo'q. Ammo har bir chegirma sababini va tasdiqlash vakolatini tekshiring.");
+            return;
+        }
+
+        if (snapshot.topProductShare.compareTo(new BigDecimal("60")) >= 0
+                && snapshot.hasProductDetails) {
+            drawerSellerCritique.setText("Tovarlar tarkibida bitta mahsulot qatorlari ulushi "
+                    + formatSalesQuantity(snapshot.topProductShare)
+                    + "% ga yetgan. Bu kuchli mahsulot, lekin savdo unga haddan ortiq bog'lanib qolmasin: keyingi mijozlarda boshqa mos variantlarni ham ko'rsating.");
+            return;
+        }
+
+        int basketSales = snapshot.singleItemSaleCount + snapshot.multiItemSaleCount;
+        if (basketSales >= 3
+                && snapshot.singleItemSaleCount * 100 / basketSales >= 60) {
+            drawerSellerCritique.setText("Savatlarning ko'p qismi bitta mahsulot bilan yakunlangan. Har bir savdoga majburan qo'shimcha tovar qo'shish shart emas, ammo mijozning to'liq ehtiyojini so'rash va mos aksessuarni ko'rsatish imkonini o'tkazib yubormang.");
             return;
         }
 
         if (snapshot.week.saleCount == 0) {
-            drawerSellerCritique.setText("Oxirgi haftada yakunlangan savdo qayd etilmagan. Mijozlar bilan muloqot va takliflar sonini oshirishga e'tibor bering.");
+            drawerSellerCritique.setText("Joriy haftada hali yakunlangan savdo qayd etilmadi. Mijozlar bilan aloqa, ochiq takliflar va qayta qo'ng'iroq kelishuvlarini tekshiring.");
         } else {
-            drawerSellerCritique.setText("Yaxshilash nuqtasi: faqat savdoni yakunlash bilan cheklanmang. Har bir mos xaridorga qo'shimcha mahsulot, kafolat yoki qulay to'lov variantini taklif etishni unutmang.");
+            drawerSellerCritique.setText("Hozirgi ko'rsatkichlarda keskin salbiy signal ko'rinmadi. O'sishni saqlash uchun savdo yakunida mahsulot, miqdor, chegirma va mijoz kelishuvlari to'g'ri qayd etilganini tekshiring.");
         }
+    }
+
+    private void updateSellerStrength(WasytSalesInsights.Snapshot snapshot) {
+        if (drawerSellerStrength == null) return;
+        StringBuilder strength = new StringBuilder();
+
+        if (!snapshot.topProducts.isEmpty()) {
+            WasytSalesInsights.ProductStat top = snapshot.topProducts.get(0);
+            strength.append("Sizning kuchli mahsulotingiz — “").append(top.name)
+                    .append("”: ").append(top.transactionCount)
+                    .append(" ta savdoda uchragan.");
+        }
+        if (!"Ma'lumot yetarli emas".equals(snapshot.strongestWeekday)) {
+            if (strength.length() > 0) strength.append(" ");
+            strength.append("Joriy oyda eng kuchli kun — ")
+                    .append(snapshot.strongestWeekday).append(".");
+        }
+        if (!"Ma'lumot yetarli emas".equals(snapshot.strongestHour)) {
+            if (strength.length() > 0) strength.append(" ");
+            strength.append("Faol vaqt oralig'i — ")
+                    .append(snapshot.strongestHour).append(".");
+        }
+        if (snapshot.repeatCustomerCount > 0) {
+            if (strength.length() > 0) strength.append(" ");
+            strength.append(snapshot.repeatCustomerCount)
+                    .append(" na mijoz qayta xarid qilgan — mijoz bilan aloqa uzilmagan.");
+        }
+        if (strength.length() == 0) {
+            strength.append("Savdo tarixi ko'paygani sari qaysi mahsulot, kun va vaqt sizga eng yaxshi natija berishi aniqlanadi.");
+        }
+        strength.append(" Bu xulosalar faqat WASYT'da qayd etilgan yakunlangan savdolarga asoslangan.");
+        drawerSellerStrength.setText(strength.toString());
+    }
+
+    private void updateSellerNextStep(WasytSalesInsights.Snapshot snapshot) {
+        if (drawerSellerNextStep == null) return;
+
+        if (snapshot.month.saleCount >= 5 && snapshot.projectedMonthTotal.signum() > 0) {
+            drawerSellerNextStep.setText("Shu oy kunlik o'rtacha sur'atingiz saqlansa, oy yakuni taxminan "
+                    + formatMoney(snapshot.projectedMonthTotal)
+                    + " so'm bo'lishi mumkin. Bu kafolat yoki reja emas — hozirgi sur'atdan hisoblangan prognoz. Keyingi 3 savdoda mijoz ehtiyojini to'liq aniqlash va mos qo'shimcha variant ko'rsatishni sinang.");
+            return;
+        }
+
+        if (!snapshot.pairedProducts.isEmpty() && snapshot.pairedSaleCount > 0) {
+            drawerSellerNextStep.setText("Keyingi mos mijozda “" + snapshot.pairedProducts
+                    + "” juftligini chegirmasiz ham tushunarli foydasi bilan taqdim etib ko'ring. Mijoz qiziqishini va natijani keyingi savdoda kuzating.");
+            return;
+        }
+
+        if (snapshot.weekAverageCheck.signum() > 0) {
+            drawerSellerNextStep.setText("Keyingi savdoda shaxsiy mezoningiz sifatida "
+                    + formatMoney(snapshot.weekAverageCheck)
+                    + " so'mlik haftalik o'rtacha chekni kuzating. Maqsad narxni oshirish emas — mijoz oladigan qiymatni to'liq tushuntirish.");
+            return;
+        }
+
+        drawerSellerNextStep.setText("Keyingi ish kuni uchun kichik vazifa: 3 mijozga ehtiyojini aniqlovchi ochiq savol bering, 1 ta mos variantni taqqoslang va har bir kelishuvni WASYT'da to'g'ri qayd eting.");
+    }
+
+    private BigDecimal percentageChange(BigDecimal current, BigDecimal previous) {
+        if (current == null || previous == null || previous.signum() <= 0) {
+            return BigDecimal.ZERO;
+        }
+        return current.subtract(previous).multiply(BigDecimal.valueOf(100))
+                .divide(previous, 0, RoundingMode.HALF_UP);
     }
 
     private void addDrawerDailySalesChart(LinearLayout parent) {
