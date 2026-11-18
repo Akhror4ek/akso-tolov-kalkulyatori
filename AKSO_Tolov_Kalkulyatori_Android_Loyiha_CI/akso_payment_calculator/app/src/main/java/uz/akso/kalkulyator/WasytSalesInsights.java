@@ -342,12 +342,16 @@ final class WasytSalesInsights {
                 }
                 product.quantity = product.quantity.add(row.quantity);
                 product.lineCount++;
-                product.transactionCount++;
                 productLineCount++;
                 categories.put(category, categories.containsKey(category)
                         ? categories.get(category) + 1 : 1);
                 productsInCart.add(key);
                 namesInCart.put(key, name);
+            }
+
+            for (String productKey : productsInCart) {
+                MutableProduct product = products.get(productKey);
+                if (product != null) product.transactionCount++;
             }
 
             if (productsInCart.size() > 1) {
