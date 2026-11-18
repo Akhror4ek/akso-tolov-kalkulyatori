@@ -83,6 +83,7 @@ final class WasytSalesInsights {
         final int productLineCount;
         final String productPeriodLabel;
         final WasytSellerApi.Cart latestSale;
+        final List<WasytSellerApi.Cart> recentSales;
         final WasytSellerApi.Cart largestSale;
         final BigDecimal todayAverageCheck;
         final BigDecimal weekAverageCheck;
@@ -108,6 +109,7 @@ final class WasytSalesInsights {
                  List<ProductStat> topProducts, CategoryStat topCategory,
                  boolean hasProductDetails, int productLineCount,
                  String productPeriodLabel, WasytSellerApi.Cart latestSale,
+                 List<WasytSellerApi.Cart> recentSales,
                  WasytSellerApi.Cart largestSale, BigDecimal todayAverageCheck,
                  BigDecimal weekAverageCheck, BigDecimal monthAverageCheck,
                  BigDecimal weekDiscountRate, BigDecimal averageItemsPerSale,
@@ -129,6 +131,8 @@ final class WasytSalesInsights {
             this.productLineCount = productLineCount;
             this.productPeriodLabel = safe(productPeriodLabel);
             this.latestSale = latestSale;
+            this.recentSales = recentSales == null
+                    ? new ArrayList<>() : new ArrayList<>(recentSales);
             this.largestSale = largestSale;
             this.todayAverageCheck = todayAverageCheck;
             this.weekAverageCheck = weekAverageCheck;
@@ -428,11 +432,26 @@ final class WasytSalesInsights {
                         0, RoundingMode.HALF_UP)
                 .multiply(BigDecimal.valueOf(todayStart.getActualMaximum(Calendar.DAY_OF_MONTH)));
 
+        Collections.sort(allValidSales, new Comparator<WasytSellerApi.Cart>() {
+            @Override public int compare(WasytSellerApi.Cart first, WasytSellerApi.Cart second) {
+                Calendar firstDate = WasytSalesRepository.getSaleDate(first);
+                Calendar secondDate = WasytSalesRepository.getSaleDate(second);
+                if (firstDate == null && secondDate == null) return 0;
+                if (firstDate == null) return 1;
+                if (secondDate == null) return -1;
+                return secondDate.compareTo(firstDate);
+            }
+        });
+        ArrayList<WasytSellerApi.Cart> recentSales = new ArrayList<>();
+        for (int i = 0; i < Math.min(5, allValidSales.size()); i++) {
+            recentSales.add(allValidSales.get(i));
+        }
+
         return new Snapshot(
                 todayPeriod, weekPeriod, previousWeek.freeze(),
                 monthPeriod, previousMonth.freeze(),
                 rankedProducts, topCategory, productLineCount > 0,
-                productLineCount, productPeriod, latestSale, largestSale,
+                productLineCount, productPeriod, latestSale, recentSales, largestSale,
                 todayPeriod.averageCheck(), weekPeriod.averageCheck(), monthPeriod.averageCheck(),
                 weekDiscountRate, averageItems, topProductShare, topCategoryShare,
                 uniqueCustomers, repeatCustomers, singleItemSaleCount,
